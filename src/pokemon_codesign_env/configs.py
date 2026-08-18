@@ -1,5 +1,23 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
+
+@dataclass
+class PokemonParameters:
+    """Parameters defining a single Pokemon."""
+
+    # Without Defaults
+    species: str
+    moves: list[str]
+    item: str | None
+    nature: str | None
+    ability: str | None
+    happiness: int | None
+    gender: str | None
+
+    # With Defaults
+    level: int = 100
+    evs: dict[str, int] = field(default_factory=lambda: {"hp": 0, "atk": 0, "def": 0, "spa": 0, "spd": 0, "spe": 0})
+    ivs: dict[str, int] = field(default_factory=lambda: {"hp": 0, "atk": 0, "def": 0, "spa": 0, "spd": 0, "spe": 0})
 
 class AttributeMode(StrEnum):
     """How a team attribute is chosen during search."""

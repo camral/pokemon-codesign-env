@@ -1,6 +1,6 @@
 import numpy as np
 from poke_env.teambuilder import Teambuilder
-from pokemon_codesign_env.configs import TeamSearchConfig
+from pokemon_codesign_env.configs import TeamSearchConfig, PokemonParameters
 
 class TeamDesigner(Teambuilder):
     """

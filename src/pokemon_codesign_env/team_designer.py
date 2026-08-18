@@ -320,3 +320,33 @@ class TeamDesigner(Teambuilder):
             raise
 
         return packed_team
+
+
+class BatchedTeamDesigner:
+    """Coordinate an ordered batch of TeamDesigner instances."""
+
+    def __init__(self, team_designers: list[TeamDesigner]):
+        if not isinstance(team_designers, list):
+            raise TypeError("team_designers must be a list.")
+        if not team_designers:
+            raise ValueError("team_designers must contain at least one TeamDesigner.")
+        if any(not isinstance(designer, TeamDesigner) for designer in team_designers):
+            raise TypeError("team_designers must contain only TeamDesigner instances.")
+        if len({id(designer) for designer in team_designers}) != len(team_designers):
+            raise ValueError("Each batch position must have its own TeamDesigner instance.")
+
+        self.team_designers = team_designers
+
+    def get_optimizable_parameters(self) -> list[dict]:
+        """Return one optimizer-facing parameter space per TeamDesigner."""
+        return [designer.get_optimizable_parameters() for designer in self.team_designers]
+
+    def set_optimizable_parameters(self, parameters: list[dict]) -> None:
+        """Assign one optimizer parameter dictionary to each TeamDesigner."""
+        if not isinstance(parameters, list):
+            raise TypeError("parameters must be a list.")
+        if len(parameters) != len(self.team_designers):
+            raise ValueError(f"Expected {len(self.team_designers)} parameter sets, got {len(parameters)}.")
+
+        for designer, team_parameters in zip(self.team_designers, parameters, strict=True):
+            designer.set_optimizable_parameters(team_parameters)

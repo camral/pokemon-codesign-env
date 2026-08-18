@@ -162,11 +162,11 @@ class TeamSearchConfig:
 
     def get_optimizable_attributes(self) -> dict[str, StrEnum]:
         """Return a dictionary of attributes that are being optimized."""
-        return {
-            field_name: getattr(self, field_name)
-            for field_name in _MODE_FIELDS
-            if getattr(self, field_name).value != "default"
-        }
+        return {field_name: getattr(self, field_name) for field_name in _MODE_FIELDS if getattr(self, field_name).value == "optimized"}
+
+    def get_configurable_attributes(self) -> dict[str, StrEnum]:
+        """Return a dictionary of attributes that are configurable (not default)."""
+        return {field_name: getattr(self, field_name) for field_name in _MODE_FIELDS if getattr(self, field_name).value != "default"}
 
 
 _MODE_FIELDS: dict[str, type[StrEnum]] = {

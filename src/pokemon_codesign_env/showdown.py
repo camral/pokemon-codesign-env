@@ -135,7 +135,9 @@ def get_parameter_values(
             throw new Error(`Unsupported Pokemon parameter: ${param}`);
         }
 
-        values.sort((left, right) => (left || '').localeCompare(right || ''));
+        if (param !== 'ability' || !requestedSpecies) {
+            values.sort((left, right) => (left || '').localeCompare(right || ''));
+        }
         console.log(JSON.stringify(values));
     """
 
@@ -152,3 +154,18 @@ def get_parameter_values(
         raise RuntimeError(f"Could not resolve Pokemon Showdown values for {param!r}: {message}")
 
     return json.loads(result.stdout)
+
+
+def validate_team(format_id: str, packed_team: str, showdown_path: Path) -> None:
+    """Validate a packed team with the local Pokemon Showdown installation."""
+    result = subprocess.run(
+        [str(showdown_path / "pokemon-showdown"), "validate-team", format_id],
+        cwd=showdown_path,
+        input=packed_team,
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+    if result.returncode:
+        message = result.stderr.strip() or result.stdout.strip()
+        raise ValueError(f"Pokemon Showdown rejected the generated team: {message}")

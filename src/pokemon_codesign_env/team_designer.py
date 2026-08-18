@@ -2,9 +2,9 @@ from copy import deepcopy
 from dataclasses import fields
 
 import numpy as np
-from poke_env.teambuilder import Teambuilder
+from poke_env.teambuilder import Teambuilder, TeambuilderPokemon
 from pokemon_codesign_env.configs import TeamSearchConfig, PokemonParameters
-from pokemon_codesign_env.showdown import get_parameter_values
+from pokemon_codesign_env.showdown import get_parameter_values, validate_team
 
 class TeamDesigner(Teambuilder):
     """
@@ -16,6 +16,7 @@ class TeamDesigner(Teambuilder):
         self.optimizable_attributes = {}
         self.optimizable_parameter_values = {}
         self.parameter_spaces = {}
+        self.rng = np.random.default_rng()
         
         self.define_optimizable_parameters()
 
@@ -184,13 +185,118 @@ class TeamDesigner(Teambuilder):
 
         self.optimizable_parameter_values = deepcopy(parameters)
 
+    def sample_parameter(self, parameter_space: dict):
+        """Sample a value from a parameter space."""
+        parameter_type = parameter_space["type"]
+
+        if parameter_type == "categorical":
+            if not parameter_space["values"]:
+                raise ValueError("Cannot sample from an empty categorical space.")
+            idx = int(self.rng.integers(len(parameter_space["values"])))
+            return parameter_space["values"][idx]
+        elif parameter_type == "integer":
+            return int(self.rng.integers(parameter_space["min"], parameter_space["max"] + 1))
+        elif parameter_type == "choice_set":
+            size = min(parameter_space["max_size"], len(parameter_space["values"]))
+            if size < parameter_space["min_size"]:
+                raise ValueError("Cannot sample enough values from the choice set.")
+            indices = self.rng.choice(len(parameter_space["values"]), size=size, replace=False)
+            return [parameter_space["values"][int(idx)] for idx in indices]
+        elif parameter_type == "stat_allocation":
+            stats = list(parameter_space["stats"])
+            self.rng.shuffle(stats)
+            remaining_budget = parameter_space["budget"]
+            values = {}
+
+            for idx, stat in enumerate(stats):
+                remaining_stats = len(stats) - idx - 1
+                min_value = max(parameter_space["min"], remaining_budget - parameter_space["max_per_stat"] * remaining_stats)
+                max_value = min(parameter_space["max_per_stat"], remaining_budget)
+                values[stat] = int(self.rng.integers(min_value, max_value + 1))
+                remaining_budget -= values[stat]
+
+            return {stat: values[stat] for stat in parameter_space["stats"]}
+        else:
+            raise ValueError(f"Unsupported parameter space type: {parameter_type!r}.")
+
+    def get_parameter_value(self, pokemon: str, param: str, species: str | None = None):
+        """Resolve an optimized, random, absent, or default parameter value."""
+        config_name = {"item": "items", "nature": "natures", "ability": "abilities"}.get(param, param)
+        mode = getattr(self.search_config, config_name)
+
+        if mode.value == "optimized":
+            return deepcopy(self.optimizable_parameter_values[pokemon][param])
+        elif mode.value == "random":
+            return self.sample_parameter(self.get_parameter_space(param, species))
+        elif mode.value == "none":
+            return None
+        elif param == "item":
+            return None
+        elif param == "nature":
+            return None if self.search_config.format.generation <= 2 else "Serious"
+        elif param == "ability":
+            abilities = self.get_parameter_space(param, species)["values"]
+            return abilities[0] if abilities else None
+        elif param == "happiness":
+            return 255
+        elif param == "ivs":
+            return {stat: self.search_config.format.iv_max for stat in ("hp", "atk", "def", "spa", "spd", "spe")}
+        else:
+            raise ValueError(f"Parameter {param} does not have a usable default.")
+
     def yield_team(self) -> str:
         """
         This function is what is called before each battle starts to define the team that is used.
-        Therefore this is the "generate" or "compile" function.
+        Therefore, this is the "generate" or "compile" function.
 
         In this function, the parameters that the class exposes will be consumed/evaluated to generate and return a team.
         :return: A string representing the generated team.
         """
 
-        raise NotImplementedError
+        expected_pokemon = {pokemon for pokemon, attributes in self.optimizable_attributes.items() if attributes}
+        if expected_pokemon != set(self.optimizable_parameter_values):
+            raise ValueError("Optimizable parameters must be set before yielding a team.")
+
+        team = []
+        for idx in range(self.search_config.team_size):
+            pokemon_name = f"pokemon_{idx}"
+            species = self.get_parameter_value(pokemon_name, "species")
+            moves = self.get_parameter_value(pokemon_name, "moves", species)
+            ability = self.get_parameter_value(pokemon_name, "ability", species)
+            gender = self.get_parameter_value(pokemon_name, "gender", species)
+            item = self.get_parameter_value(pokemon_name, "item", species)
+            nature = self.get_parameter_value(pokemon_name, "nature", species)
+            happiness = self.get_parameter_value(pokemon_name, "happiness", species)
+            evs = self.get_parameter_value(pokemon_name, "evs", species)
+            ivs = self.get_parameter_value(pokemon_name, "ivs", species)
+
+            level = round(self.rng.normal(self.search_config.level_mean, self.search_config.level_std))
+            level = min(max(level, self.search_config.format.min_level), self.search_config.format.max_level)
+            pokemon = PokemonParameters(
+                species=species,
+                moves=moves,
+                item=item,
+                nature=nature,
+                ability=ability,
+                happiness=happiness,
+                gender=gender,
+                level=level,
+                evs=evs,
+                ivs=ivs,
+            )
+            team.append(TeambuilderPokemon(
+                species=pokemon.species,
+                item=pokemon.item,
+                ability=pokemon.ability,
+                moves=pokemon.moves,
+                nature=pokemon.nature,
+                evs=[pokemon.evs[stat] for stat in ("hp", "atk", "def", "spa", "spd", "spe")],
+                gender=pokemon.gender,
+                ivs=[pokemon.ivs[stat] for stat in ("hp", "atk", "def", "spa", "spd", "spe")],
+                level=pokemon.level,
+                happiness=pokemon.happiness,
+            ))
+
+        packed_team = self.join_team(team)
+        validate_team(self.search_config.format.format_id, packed_team, self.search_config.format.showdown_path)
+        return packed_team

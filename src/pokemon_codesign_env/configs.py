@@ -20,7 +20,7 @@ class PokemonParameters:
     # With Defaults
     level: int = 100
     evs: dict[str, int] = field(default_factory=lambda: {"hp": 0, "atk": 0, "def": 0, "spa": 0, "spd": 0, "spe": 0})
-    ivs: dict[str, int] = field(default_factory=lambda: {"hp": 0, "atk": 0, "def": 0, "spa": 0, "spd": 0, "spe": 0})
+    ivs: dict[str, int] = field(default_factory=lambda: {"hp": 31, "atk": 31, "def": 31, "spa": 31, "spd": 31, "spe": 31})
 
     def __post_init__(self) -> None:
         if self.happiness is not None and (self.happiness < 0 or self.happiness > 255):
@@ -53,14 +53,8 @@ class ItemMode(StrEnum):
     OPTIMIZED = "optimized"
     NONE = "none"
 
-class GenderMode(StrEnum):
-    """Gender selection mode; there is no format default to fall back on."""
-
-    RANDOM = "random"
-    OPTIMIZED = "optimized"
-
-class SpeciesMode(StrEnum):
-    """Species selection mode; a species must always be selected."""
+class SelectionMode(StrEnum):
+    """How an attribute without a usable default is selected."""
 
     RANDOM = "random"
     OPTIMIZED = "optimized"
@@ -111,15 +105,15 @@ class TeamSearchConfig:
     level_std: float = 0.0
 
     # What is being optimized?
-    species: SpeciesMode = SpeciesMode.RANDOM
-    evs: AttributeMode = AttributeMode.DEFAULT
+    species: SelectionMode = SelectionMode.RANDOM
+    evs: SelectionMode = SelectionMode.RANDOM
     ivs: AttributeMode = AttributeMode.DEFAULT
-    moves: AttributeMode = AttributeMode.DEFAULT
+    moves: SelectionMode = SelectionMode.RANDOM
     items: ItemMode = ItemMode.DEFAULT
     natures: AttributeMode = AttributeMode.DEFAULT
     abilities: AttributeMode = AttributeMode.DEFAULT
     happiness: AttributeMode = AttributeMode.DEFAULT
-    gender: GenderMode = GenderMode.RANDOM
+    gender: SelectionMode = SelectionMode.RANDOM
 
     # Restrictions on Pokemon selection (None = unrestricted)
     generations_allowed: tuple[int, ...] | None = None
@@ -136,6 +130,11 @@ class TeamSearchConfig:
                     allowed = ", ".join(repr(m.value) for m in enum_type)
                     raise ValueError(f"{field_name} must be one of {allowed}, got {value!r}") from None
                 object.__setattr__(self, field_name, coerced)
+
+        if self.species is SelectionMode.RANDOM:
+            for field_name in ("moves", "abilities", "gender"):
+                if getattr(self, field_name).value == "optimized":
+                    raise ValueError(f"{field_name} cannot be optimized when species is random")
 
         format_ev_budget = self.format.ev_limit
         if format_ev_budget is None:
@@ -178,13 +177,13 @@ class TeamSearchConfig:
 
 
 _MODE_FIELDS: dict[str, type[StrEnum]] = {
-    "species": SpeciesMode,
-    "evs": AttributeMode,
+    "species": SelectionMode,
+    "evs": SelectionMode,
     "ivs": AttributeMode,
-    "moves": AttributeMode,
+    "moves": SelectionMode,
     "items": ItemMode,
     "natures": AttributeMode,
     "abilities": AttributeMode,
     "happiness": AttributeMode,
-    "gender": GenderMode,
+    "gender": SelectionMode,
 }

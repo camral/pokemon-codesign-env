@@ -325,7 +325,12 @@ class TeamDesigner(Teambuilder):
 class BatchedTeamDesigner:
     """Coordinate an ordered batch of TeamDesigner instances."""
 
-    def __init__(self, team_designers: list[TeamDesigner]):
+    def __init__(self, search_config: TeamSearchConfig = None, n_teams: int = None, team_designers: list[TeamDesigner] = None):
+        if team_designers is None:
+            if search_config is None or n_teams is None:
+                raise ValueError("Either team_designers or both search_config and n_teams must be provided.")
+            team_designers = [TeamDesigner(search_config) for _ in range(n_teams)]
+
         if not isinstance(team_designers, list):
             raise TypeError("team_designers must be a list.")
         if not team_designers:
@@ -336,6 +341,7 @@ class BatchedTeamDesigner:
             raise ValueError("Each batch position must have its own TeamDesigner instance.")
 
         self.team_designers = team_designers
+        self.search_config = search_config
 
     def get_optimizable_parameters(self) -> list[dict]:
         """Return one optimizer-facing parameter space per TeamDesigner."""

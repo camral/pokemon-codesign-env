@@ -78,6 +78,7 @@ class FormatConfig:
     ev_limit: int | None
     ev_per_stat_cap: int
     iv_max: int
+    showdown_path: Path
 
     @classmethod
     def from_showdown(cls, format_id: str, showdown_path: Path | None = None) -> "FormatConfig":
@@ -85,7 +86,7 @@ class FormatConfig:
         if showdown_path is None:
             showdown_path = Path(__file__).resolve().parents[2] / "pokemon-showdown"
 
-        return cls(**get_format_rules(format_id, showdown_path))
+        return cls(**get_format_rules(format_id, showdown_path), showdown_path=showdown_path)
 
 
 @dataclass(frozen=True, slots=True)

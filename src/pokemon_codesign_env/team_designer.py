@@ -17,6 +17,7 @@ class TeamDesigner(Teambuilder):
         self.optimizable_attributes = {}
         self.optimizable_parameter_values = {}
         self.parameter_spaces = {}
+        self.sampled_observations = {}
         self.rng = np.random.default_rng()
         
         self.define_optimizable_parameters()
@@ -254,6 +255,40 @@ class TeamDesigner(Teambuilder):
         else:
             raise ValueError(f"Parameter {param} does not have a usable default.")
 
+    def sample_observations(self) -> dict:
+        """Sample species-independent default and random attributes for the next team."""
+        observable_parameters = {
+            "species": "species",
+            "evs": "evs",
+            "ivs": "ivs",
+            "item": "items",
+            "nature": "natures",
+            "happiness": "happiness",
+        }
+        observations = {}
+
+        for idx in range(self.search_config.team_size):
+            pokemon_name = f"pokemon_{idx}"
+            pokemon_observations = {}
+
+            for param, config_name in observable_parameters.items():
+                mode = getattr(self.search_config, config_name)
+                if mode.value in {"default", "random"}:
+                    pokemon_observations[param] = self.get_parameter_value(pokemon_name, param)
+
+            level = round(self.rng.normal(self.search_config.level_mean, self.search_config.level_std))
+            pokemon_observations["level"] = min(max(level, self.search_config.format.min_level), self.search_config.format.max_level)
+            observations[pokemon_name] = pokemon_observations
+
+        self.sampled_observations = observations
+        return deepcopy(observations)
+
+    def _resolve_observed_parameter(self, pokemon: str, param: str, observations: dict, species: str | None = None):
+        """Use an observed value when available, otherwise resolve it normally."""
+        if param in observations:
+            return deepcopy(observations[param])
+        return self.get_parameter_value(pokemon, param, species)
+
     def yield_team(self) -> str:
         """
         This function is what is called before each battle starts to define the team that is used.
@@ -267,22 +302,27 @@ class TeamDesigner(Teambuilder):
         if expected_pokemon != set(self.optimizable_parameter_values):
             raise ValueError("Optimizable parameters must be set before yielding a team.")
 
+        if not self.sampled_observations:
+            self.sample_observations()
+
+        sampled_observations = self.sampled_observations
         resolved_team = []
         for idx in range(self.search_config.team_size):
             pokemon_name = f"pokemon_{idx}"
-            species = self.get_parameter_value(pokemon_name, "species")
+            pokemon_observations = sampled_observations[pokemon_name]
+
+            species = self._resolve_observed_parameter(pokemon_name, "species", pokemon_observations)
             moves = self.get_parameter_value(pokemon_name, "moves", species)
             ability = self.get_parameter_value(pokemon_name, "ability", species)
             gender = self.get_parameter_value(pokemon_name, "gender", species)
-            item = self.get_parameter_value(pokemon_name, "item", species)
-            nature = self.get_parameter_value(pokemon_name, "nature", species)
-            happiness = self.get_parameter_value(pokemon_name, "happiness", species)
-            evs = self.get_parameter_value(pokemon_name, "evs", species)
-            ivs = self.get_parameter_value(pokemon_name, "ivs", species)
+            item = self._resolve_observed_parameter(pokemon_name, "item", pokemon_observations)
+            nature = self._resolve_observed_parameter(pokemon_name, "nature", pokemon_observations)
+            happiness = self._resolve_observed_parameter(pokemon_name, "happiness", pokemon_observations)
+            evs = self._resolve_observed_parameter(pokemon_name, "evs", pokemon_observations)
+            ivs = self._resolve_observed_parameter(pokemon_name, "ivs", pokemon_observations)
             tera_type = self.get_parameter_value(pokemon_name, "tera_type", species)
 
-            level = round(self.rng.normal(self.search_config.level_mean, self.search_config.level_std))
-            level = min(max(level, self.search_config.format.min_level), self.search_config.format.max_level)
+            level = pokemon_observations["level"]
             resolved_team.append(PokemonParameters(
                 species=species,
                 moves=moves,
@@ -317,8 +357,10 @@ class TeamDesigner(Teambuilder):
             validate_team(self.search_config.format.format_id, packed_team, self.search_config.format.showdown_path)
         except Exception:
             self.team = previous_team
+            self.sampled_observations = {}
             raise
 
+        self.sampled_observations = {}
         return packed_team
 
 
@@ -359,3 +401,7 @@ class BatchedTeamDesigner:
 
         for designer, team_parameters in zip(self.team_designers, parameters, strict=True):
             designer.set_optimizable_parameters(team_parameters)
+
+    def sample_observations(self) -> list[dict]:
+        """Sample one observation dictionary per TeamDesigner."""
+        return [designer.sample_observations() for designer in self.team_designers]

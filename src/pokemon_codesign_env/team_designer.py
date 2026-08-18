@@ -330,6 +330,9 @@ class BatchedTeamDesigner:
             if search_config is None or n_teams is None:
                 raise ValueError("Either team_designers or both search_config and n_teams must be provided.")
             team_designers = [TeamDesigner(search_config) for _ in range(n_teams)]
+            self.n_teams = n_teams
+        else:
+            self.n_teams = len(team_designers)
 
         if not isinstance(team_designers, list):
             raise TypeError("team_designers must be a list.")

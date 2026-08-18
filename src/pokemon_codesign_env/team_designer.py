@@ -27,7 +27,7 @@ class TeamDesigner(Teambuilder):
             self.optimizable_parameters[f"pokemon_{idx}"] = {}
 
             for attribute in optimizable_attributes:
-                if attribute in PokemonParameters.__dataclass_fields__:
+                if attribute in {field.name for field in fields(PokemonParameters)}:
                     self.optimizable_parameters[f"pokemon_{idx}"][attribute] = getattr(self.search_config, attribute)
                 else:
                     # Some attributes have different names in the search_config and PokemonParameters, so we need to map them accordingly.

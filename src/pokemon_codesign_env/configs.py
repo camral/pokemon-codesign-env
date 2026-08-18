@@ -1,5 +1,8 @@
 from dataclasses import dataclass, field
 from enum import StrEnum
+from pathlib import Path
+
+from pokemon_codesign_env.showdown import get_format_rules
 
 @dataclass
 class PokemonParameters:
@@ -57,16 +60,47 @@ class GenderMode(StrEnum):
     OPTIMIZED = "optimized"
 
 @dataclass(frozen=True, slots=True)
-class TeamSearchConfig:
-    """Parameters defining the team design search space."""
+class FormatConfig:
+    """Resolved Pokemon Showdown rules for the format being searched."""
 
-    # Numerical parameters
-    team_size: int = 6
-    ev_budget: int = 510
-    ev_per_stat_cap: int = 252
-    iv_max: int = 31
-    iv_budget: int = 186
-    level_mean: int = 50
+    format_id: str
+    format_name: str
+    generation: int
+    min_team_size: int
+    max_team_size: int
+    picked_team_size: int | None
+    max_move_count: int
+    min_level: int
+    max_level: int
+    default_level: int
+    adjust_level: int | None
+    adjust_level_down: int | None
+    ev_limit: int | None
+    ev_per_stat_cap: int
+    iv_max: int
+
+    @classmethod
+    def from_showdown(cls, format_id: str, showdown_path: Path | None = None) -> "FormatConfig":
+        """Resolve a format's rules from the local Pokemon Showdown installation."""
+        if showdown_path is None:
+            showdown_path = Path(__file__).resolve().parents[2] / "pokemon-showdown"
+
+        return cls(**get_format_rules(format_id, showdown_path))
+
+
+@dataclass(frozen=True, slots=True)
+class TeamSearchConfig:
+    """Restrictions on the portion of a format's legal team space being searched."""
+
+    format: FormatConfig
+
+    # Optional restrictions on format limits
+    team_size: int | None = None
+    ev_budget: int | None = None
+    ev_per_stat_cap: int | None = None
+    iv_max: int | None = None
+    iv_budget: int | None = None
+    level_mean: int | None = None
     level_std: float = 0.0
 
     # What is being optimized?
@@ -95,18 +129,36 @@ class TeamSearchConfig:
                     raise ValueError(f"{field_name} must be one of {allowed}, got {value!r}") from None
                 object.__setattr__(self, field_name, coerced)
 
-        if not 1 <= self.team_size <= 6:
-            raise ValueError(f"team_size must be 1-6, got {self.team_size}")
-        if self.ev_budget < 0:
-            raise ValueError(f"ev_budget must be >= 0, got {self.ev_budget}")
+        format_ev_budget = self.format.ev_limit
+        if format_ev_budget is None:
+            format_ev_budget = 6 * self.format.ev_per_stat_cap
+        if self.team_size is None:
+            object.__setattr__(self, "team_size", self.format.max_team_size)
+        if self.ev_per_stat_cap is None:
+            object.__setattr__(self, "ev_per_stat_cap", self.format.ev_per_stat_cap)
+        if self.ev_budget is None:
+            object.__setattr__(self, "ev_budget", min(format_ev_budget, 6 * self.ev_per_stat_cap))
+        if self.iv_max is None:
+            object.__setattr__(self, "iv_max", self.format.iv_max)
+        if self.iv_budget is None:
+            object.__setattr__(self, "iv_budget", 6 * self.iv_max)
+        if self.level_mean is None:
+            object.__setattr__(self, "level_mean", self.format.default_level)
+
+        if not self.format.min_team_size <= self.team_size <= self.format.max_team_size:
+            raise ValueError(f"team_size must be {self.format.min_team_size}-{self.format.max_team_size} for {self.format.format_name}, got {self.team_size}")
+        if not 0 <= self.ev_per_stat_cap <= self.format.ev_per_stat_cap:
+            raise ValueError(f"ev_per_stat_cap must be 0-{self.format.ev_per_stat_cap}, got {self.ev_per_stat_cap}")
+        if not 0 <= self.ev_budget <= min(format_ev_budget, 6 * self.ev_per_stat_cap):
+            raise ValueError(f"ev_budget must be 0-{min(format_ev_budget, 6 * self.ev_per_stat_cap)}, got {self.ev_budget}")
         if self.level_std < 0:
             raise ValueError(f"level_std must be >= 0, got {self.level_std}")
-        if self.level_mean < 1 or self.level_mean > 100:
-            raise ValueError(f"level_mean must be 1-100, got {self.level_mean}")
-        if self.iv_budget < 0:
-            raise ValueError(f"iv_budget must be >= 0, got {self.iv_budget}")
-        if self.iv_max < 0 or self.iv_max > 31:
-            raise ValueError(f"iv_max must be 0-31, got {self.iv_max}")
+        if not self.format.min_level <= self.level_mean <= self.format.max_level:
+            raise ValueError(f"level_mean must be {self.format.min_level}-{self.format.max_level}, got {self.level_mean}")
+        if not 0 <= self.iv_max <= self.format.iv_max:
+            raise ValueError(f"iv_max must be 0-{self.format.iv_max}, got {self.iv_max}")
+        if not 0 <= self.iv_budget <= 6 * self.iv_max:
+            raise ValueError(f"iv_budget must be 0-{6 * self.iv_max}, got {self.iv_budget}")
 
     def get_optimizable_attributes(self) -> dict[str, StrEnum]:
         """Return a dictionary of attributes that are being optimized."""

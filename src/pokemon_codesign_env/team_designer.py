@@ -13,6 +13,7 @@ class TeamDesigner(Teambuilder):
     def __init__(self, search_config: TeamSearchConfig):
         super().__init__()
         self.search_config = search_config
+        self.team: list[PokemonParameters] = []
         self.optimizable_attributes = {}
         self.optimizable_parameter_values = {}
         self.parameter_spaces = {}
@@ -257,7 +258,7 @@ class TeamDesigner(Teambuilder):
         if expected_pokemon != set(self.optimizable_parameter_values):
             raise ValueError("Optimizable parameters must be set before yielding a team.")
 
-        team = []
+        resolved_team = []
         for idx in range(self.search_config.team_size):
             pokemon_name = f"pokemon_{idx}"
             species = self.get_parameter_value(pokemon_name, "species")
@@ -272,7 +273,7 @@ class TeamDesigner(Teambuilder):
 
             level = round(self.rng.normal(self.search_config.level_mean, self.search_config.level_std))
             level = min(max(level, self.search_config.format.min_level), self.search_config.format.max_level)
-            pokemon = PokemonParameters(
+            resolved_team.append(PokemonParameters(
                 species=species,
                 moves=moves,
                 item=item,
@@ -283,20 +284,27 @@ class TeamDesigner(Teambuilder):
                 level=level,
                 evs=evs,
                 ivs=ivs,
-            )
-            team.append(TeambuilderPokemon(
-                species=pokemon.species,
-                item=pokemon.item,
-                ability=pokemon.ability,
-                moves=pokemon.moves,
-                nature=pokemon.nature,
-                evs=[pokemon.evs[stat] for stat in ("hp", "atk", "def", "spa", "spd", "spe")],
-                gender=pokemon.gender,
-                ivs=[pokemon.ivs[stat] for stat in ("hp", "atk", "def", "spa", "spd", "spe")],
-                level=pokemon.level,
-                happiness=pokemon.happiness,
             ))
 
-        packed_team = self.join_team(team)
-        validate_team(self.search_config.format.format_id, packed_team, self.search_config.format.showdown_path)
+        previous_team = self.team
+        self.team = resolved_team
+        try:
+            packed_team = self.join_team([
+                TeambuilderPokemon(
+                    species=pokemon.species,
+                    item=pokemon.item,
+                    ability=pokemon.ability,
+                    moves=pokemon.moves,
+                    nature=pokemon.nature,
+                    evs=[pokemon.evs[stat] for stat in ("hp", "atk", "def", "spa", "spd", "spe")],
+                    gender=pokemon.gender,
+                    ivs=[pokemon.ivs[stat] for stat in ("hp", "atk", "def", "spa", "spd", "spe")],
+                    level=pokemon.level,
+                    happiness=pokemon.happiness,
+                ) for pokemon in self.team])
+            validate_team(self.search_config.format.format_id, packed_team, self.search_config.format.showdown_path)
+        except Exception:
+            self.team = previous_team
+            raise
+
         return packed_team

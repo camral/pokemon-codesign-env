@@ -59,6 +59,12 @@ class GenderMode(StrEnum):
     RANDOM = "random"
     OPTIMIZED = "optimized"
 
+class SpeciesMode(StrEnum):
+    """Species selection mode; a species must always be selected."""
+
+    RANDOM = "random"
+    OPTIMIZED = "optimized"
+
 @dataclass(frozen=True, slots=True)
 class FormatConfig:
     """Resolved Pokemon Showdown rules for the format being searched."""
@@ -105,6 +111,7 @@ class TeamSearchConfig:
     level_std: float = 0.0
 
     # What is being optimized?
+    species: SpeciesMode = SpeciesMode.RANDOM
     evs: AttributeMode = AttributeMode.DEFAULT
     ivs: AttributeMode = AttributeMode.DEFAULT
     moves: AttributeMode = AttributeMode.DEFAULT
@@ -171,6 +178,7 @@ class TeamSearchConfig:
 
 
 _MODE_FIELDS: dict[str, type[StrEnum]] = {
+    "species": SpeciesMode,
     "evs": AttributeMode,
     "ivs": AttributeMode,
     "moves": AttributeMode,

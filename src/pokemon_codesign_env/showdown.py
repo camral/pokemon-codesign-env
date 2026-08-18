@@ -36,6 +36,10 @@ def get_format_rules(format_id: str, showdown_path: Path) -> dict[str, object]:
             ev_limit: ruleTable.evLimit,
             ev_per_stat_cap: usesAwakeningValues ? 200 : usesStatPoints ? 32 : 255,
             iv_max: dex.gen <= 2 ? 30 : 31,
+            supports_tera_type: (
+                dex.gen === 9 && !dex.currentMod.startsWith('champions') &&
+                !ruleTable.has('terastalclause')
+            ) || ruleTable.has('bonustypemod'),
         }));
     """
 
@@ -131,11 +135,29 @@ def get_parameter_values(
                 }
             }
             values = Array.from(genders);
+        } else if (param === 'tera_type') {
+            if (requestedSpecies && !speciesPool.length) {
+                values = [];
+            } else if (!((dex.gen === 9 && !dex.currentMod.startsWith('champions') &&
+                !validator.ruleTable.has('terastalclause')) ||
+                validator.ruleTable.has('bonustypemod'))) {
+                values = [null];
+            } else if (requestedSpecies && speciesPool[0]?.requiredTeraType) {
+                values = [speciesPool[0].requiredTeraType];
+            } else {
+                values = dex.types.all()
+                    .filter(type => type.exists && !type.isNonstandard)
+                    .map(type => type.name);
+                if (requestedSpecies && speciesPool[0]) {
+                    const defaultType = speciesPool[0].types[0];
+                    values = [defaultType, ...values.filter(type => type !== defaultType)];
+                }
+            }
         } else {
             throw new Error(`Unsupported Pokemon parameter: ${param}`);
         }
 
-        if (param !== 'ability' || !requestedSpecies) {
+        if (!requestedSpecies || !['ability', 'tera_type'].includes(param)) {
             values.sort((left, right) => (left || '').localeCompare(right || ''));
         }
         console.log(JSON.stringify(values));

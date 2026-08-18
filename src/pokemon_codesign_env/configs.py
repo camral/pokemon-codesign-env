@@ -16,6 +16,7 @@ class PokemonParameters:
     ability: str | None
     happiness: int | None
     gender: str | None
+    tera_type: str | None
 
     # With Defaults
     level: int = 100
@@ -78,6 +79,7 @@ class FormatConfig:
     ev_limit: int | None
     ev_per_stat_cap: int
     iv_max: int
+    supports_tera_type: bool
     showdown_path: Path
 
     @classmethod
@@ -114,6 +116,7 @@ class TeamSearchConfig:
     abilities: AttributeMode = AttributeMode.DEFAULT
     happiness: AttributeMode = AttributeMode.DEFAULT
     gender: SelectionMode = SelectionMode.RANDOM
+    tera_types: AttributeMode = AttributeMode.DEFAULT
 
     # Restrictions on Pokemon selection (None = unrestricted)
     generations_allowed: tuple[int, ...] | None = None
@@ -132,9 +135,12 @@ class TeamSearchConfig:
                 object.__setattr__(self, field_name, coerced)
 
         if self.species is SelectionMode.RANDOM:
-            for field_name in ("moves", "abilities", "gender"):
+            for field_name in ("moves", "abilities", "gender", "tera_types"):
                 if getattr(self, field_name).value == "optimized":
                     raise ValueError(f"{field_name} cannot be optimized when species is random")
+
+        if not self.format.supports_tera_type and self.tera_types is not AttributeMode.DEFAULT:
+            raise ValueError(f"tera_types cannot be configured for {self.format.format_name}")
 
         format_ev_budget = self.format.ev_limit
         if format_ev_budget is None:
@@ -186,4 +192,5 @@ _MODE_FIELDS: dict[str, type[StrEnum]] = {
     "abilities": AttributeMode,
     "happiness": AttributeMode,
     "gender": SelectionMode,
+    "tera_types": AttributeMode,
 }

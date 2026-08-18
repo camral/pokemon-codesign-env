@@ -43,6 +43,10 @@ class TeamDesigner(Teambuilder):
                         self.optimizable_attributes[f"pokemon_{idx}"]["nature"] = getattr(self.search_config, attribute)
                     elif attribute == "abilities":
                         self.optimizable_attributes[f"pokemon_{idx}"]["ability"] = getattr(self.search_config, attribute)
+                    elif attribute == "tera_types":
+                        self.optimizable_attributes[f"pokemon_{idx}"]["tera_type"] = getattr(
+                            self.search_config, attribute
+                        )
                     else:
                         raise ValueError(f"Attribute {attribute} is not a valid attribute in PokemonParameters.")
 
@@ -88,7 +92,7 @@ class TeamDesigner(Teambuilder):
                 "max_size": self.search_config.format.max_move_count,
                 "unique": True,
             }
-        elif param in {"species", "item", "nature", "ability", "gender"}:
+        elif param in {"species", "item", "nature", "ability", "gender", "tera_type"}:
             parameter_space = {
                 "type": "categorical",
                 "values": get_parameter_values(
@@ -100,7 +104,7 @@ class TeamDesigner(Teambuilder):
                     self.search_config.types_allowed,
                 ),
             }
-            if param in {"ability", "gender"}:
+            if param in {"ability", "gender", "tera_type"}:
                 parameter_space["depends_on"] = "species"
         elif param == "happiness":
             parameter_space = {
@@ -222,7 +226,7 @@ class TeamDesigner(Teambuilder):
 
     def get_parameter_value(self, pokemon: str, param: str, species: str | None = None):
         """Resolve an optimized, random, absent, or default parameter value."""
-        config_name = {"item": "items", "nature": "natures", "ability": "abilities"}.get(param, param)
+        config_name = {"item": "items", "nature": "natures", "ability": "abilities", "tera_type": "tera_types"}.get(param, param)
         mode = getattr(self.search_config, config_name)
 
         if mode.value == "optimized":
@@ -242,6 +246,11 @@ class TeamDesigner(Teambuilder):
             return 255
         elif param == "ivs":
             return {stat: self.search_config.format.iv_max for stat in ("hp", "atk", "def", "spa", "spd", "spe")}
+        elif param == "tera_type":
+            if not self.search_config.format.supports_tera_type:
+                return None
+            tera_types = self.get_parameter_space(param, species)["values"]
+            return tera_types[0]
         else:
             raise ValueError(f"Parameter {param} does not have a usable default.")
 
@@ -270,6 +279,7 @@ class TeamDesigner(Teambuilder):
             happiness = self.get_parameter_value(pokemon_name, "happiness", species)
             evs = self.get_parameter_value(pokemon_name, "evs", species)
             ivs = self.get_parameter_value(pokemon_name, "ivs", species)
+            tera_type = self.get_parameter_value(pokemon_name, "tera_type", species)
 
             level = round(self.rng.normal(self.search_config.level_mean, self.search_config.level_std))
             level = min(max(level, self.search_config.format.min_level), self.search_config.format.max_level)
@@ -281,6 +291,7 @@ class TeamDesigner(Teambuilder):
                 ability=ability,
                 happiness=happiness,
                 gender=gender,
+                tera_type=tera_type,
                 level=level,
                 evs=evs,
                 ivs=ivs,
@@ -301,7 +312,8 @@ class TeamDesigner(Teambuilder):
                     ivs=[pokemon.ivs[stat] for stat in ("hp", "atk", "def", "spa", "spd", "spe")],
                     level=pokemon.level,
                     happiness=pokemon.happiness,
-                ) for pokemon in self.team])
+                    tera_type=pokemon.tera_type)
+                for pokemon in self.team])
             validate_team(self.search_config.format.format_id, packed_team, self.search_config.format.showdown_path)
         except Exception:
             self.team = previous_team

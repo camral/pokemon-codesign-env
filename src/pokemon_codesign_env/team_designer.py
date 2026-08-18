@@ -20,6 +20,14 @@ class TeamDesigner(Teambuilder):
         """
         raise NotImplementedError
 
+    def get_parameter_space(self, param: str) -> dict:
+        """
+        The function returns the parameter space for a given parameter. The parameter space is defined by the search_config.
+        :param param:
+        :return:
+        """
+        raise NotImplementedError
+
     def get_optimizable_parameters(self) -> dict:
         """
         This function returns the parameters that are used to navigate the search space for the team design process.

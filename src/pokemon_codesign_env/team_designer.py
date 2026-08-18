@@ -1,3 +1,5 @@
+from dataclasses import fields
+
 import numpy as np
 from poke_env.teambuilder import Teambuilder
 from pokemon_codesign_env.configs import TeamSearchConfig, PokemonParameters
@@ -18,7 +20,25 @@ class TeamDesigner(Teambuilder):
         This function uses the search_config to define the parameters that are used to navigate the search space for the team design process.
         :return:
         """
-        raise NotImplementedError
+
+        optimizable_attributes = self.search_config.get_optimizable_attributes()
+
+        for idx in range(self.search_config.team_size):
+            self.optimizable_parameters[f"pokemon_{idx}"] = {}
+
+            for attribute in optimizable_attributes:
+                if attribute in PokemonParameters.__dataclass_fields__:
+                    self.optimizable_parameters[f"pokemon_{idx}"][attribute] = getattr(self.search_config, attribute)
+                else:
+                    # Some attributes have different names in the search_config and PokemonParameters, so we need to map them accordingly.
+                    if attribute == "items":
+                        self.optimizable_parameters[f"pokemon_{idx}"]["item"] = getattr(self.search_config, attribute)
+                    elif attribute == "natures":
+                        self.optimizable_parameters[f"pokemon_{idx}"]["nature"] = getattr(self.search_config, attribute)
+                    elif attribute == "abilities":
+                        self.optimizable_parameters[f"pokemon_{idx}"]["ability"] = getattr(self.search_config, attribute)
+                    else:
+                        raise ValueError(f"Attribute {attribute} is not a valid attribute in PokemonParameters.")
 
     def get_parameter_space(self, param: str) -> dict:
         """

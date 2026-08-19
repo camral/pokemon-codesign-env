@@ -72,6 +72,7 @@ def managed_showdown_server(enabled: bool, showdown_path: Path, verbose: bool = 
         yield
         return
 
+    showdown_path = showdown_path.resolve()
     executable = showdown_path / "pokemon-showdown"
     if not executable.is_file():
         raise FileNotFoundError(f"Pokemon Showdown launcher not found: {executable}")
@@ -132,13 +133,19 @@ class ObservationFeaturesExtractor(BaseFeaturesExtractor):
     """Concatenate raw state values while keeping the action mask separate."""
 
     def __init__(self, observation_space):
-        feature_keys = tuple(key for key in ("categorical", "continuous", "binary") if key in observation_space.spaces)
-        features_dim = sum(int(np.prod(observation_space[key].shape)) for key in feature_keys)
+        feature_keys = tuple(key for key in observation_space.spaces if key != "action_mask")
+        features_dim = sum(
+            max(1, int(np.prod(observation_space[key].shape))) for key in feature_keys
+        )
         super().__init__(observation_space, features_dim=features_dim)
         self.feature_keys = feature_keys
 
     def forward(self, observations):
-        return torch.cat([observations[key].float() for key in self.feature_keys], dim=1)
+        return torch.cat(
+            [observations[key].float().reshape(observations[key].shape[0], -1)
+             for key in self.feature_keys],
+            dim=1,
+        )
 
 
 class MaskedActorCriticPolicy(ActorCriticPolicy):

@@ -104,6 +104,40 @@ The best evaluated team and its PPO controller are written to
 candidate receives a freshly initialized PPO controller, making embodiment
 scores comparable at the cost of additional training time.
 
+## Pokemon League experiment
+
+`examples/train_pokemon_league_sb3_ngopt.py` applies the same nested SB3 and
+NGOpt setup to a complete five-battle League episode:
+
+```bash
+python examples/train_pokemon_league_sb3_ngopt.py \
+  --generation 4 \
+  --difficulty 0 \
+  --launch-server \
+  --verbose
+```
+
+Use `--random-league` instead of `--generation` to sample one League per
+episode while allowing Pokemon from every generation.
+
+## Self-play experiment
+
+`examples/train_self_play_sb3_ngopt.py` performs iterative frozen-policy
+self-play. The first round bootstraps against `RandomPlayer`; each later round
+runs NGOpt and trains fresh PPO challengers against the previous round's fixed
+champion team and controller.
+
+```bash
+python examples/train_self_play_sb3_ngopt.py \
+  --self-play-rounds 3 \
+  --ng-budget 4 \
+  --launch-server \
+  --verbose
+```
+
+Round snapshots are saved under `runs/self_play/round_N/`, and the latest
+champion is also saved as `best_controller.zip` and `best_team.json`.
+
 To watch slowed exhibition games with the saved best controller, leave the
 Showdown server running, open `http://localhost:8000`, and run:
 

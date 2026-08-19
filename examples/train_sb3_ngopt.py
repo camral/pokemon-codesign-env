@@ -1,13 +1,19 @@
 """Minimal nested co-design experiment using SB3 PPO and Nevergrad NGOpt.
 
-Run a local Pokemon Showdown server before starting this script. NGOpt chooses
-the species and nature of all six Pokemon. A fresh PPO controller is trained
-for each candidate against a random policy whose team is regenerated every battle.
+Use --launch-server to manage a local Pokemon Showdown server automatically.
+NGOpt chooses the species and nature of all six Pokemon. A fresh PPO controller
+is trained for each candidate against a random policy whose team is regenerated
+every battle.
 """
 
 import argparse
 import json
+import os
+import signal
+import socket
+import subprocess
 import time
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 
@@ -38,6 +44,69 @@ BATTLE_FORMAT = "gen4customgame"
 TEAM_SIZE = 6
 OBSERVATION_CONFIG = ObservationConfig(team_size=TEAM_SIZE)
 INVALID_CANDIDATE_LOSS = 1_000_000.0
+SHOWDOWN_HOST = "127.0.0.1"
+SHOWDOWN_PORT = 8000
+SERVER_STARTUP_TIMEOUT = 120.0
+
+
+def is_server_running(host: str = SHOWDOWN_HOST, port: int = SHOWDOWN_PORT) -> bool:
+    """Return whether something is accepting connections at the server address."""
+    try:
+        with socket.create_connection((host, port), timeout=0.2):
+            return True
+    except OSError:
+        return False
+
+
+@contextmanager
+def managed_showdown_server(enabled: bool, showdown_path: Path, verbose: bool = False):
+    """Start and stop a local Showdown server when requested and necessary."""
+    if not enabled:
+        yield
+        return
+
+    if is_server_running():
+        if verbose:
+            print(f"showdown_server=status_existing port={SHOWDOWN_PORT}")
+        yield
+        return
+
+    executable = showdown_path / "pokemon-showdown"
+    if not executable.is_file():
+        raise FileNotFoundError(f"Pokemon Showdown launcher not found: {executable}")
+
+    output = None if verbose else subprocess.DEVNULL
+    process = subprocess.Popen(
+        ["node", str(executable), "start", "--no-security"],
+        cwd=showdown_path,
+        stdout=output,
+        stderr=output,
+        start_new_session=True,
+    )
+    deadline = time.monotonic() + SERVER_STARTUP_TIMEOUT
+
+    try:
+        while not is_server_running():
+            return_code = process.poll()
+            if return_code is not None:
+                raise RuntimeError(f"Pokemon Showdown exited during startup with code {return_code}.")
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"Pokemon Showdown did not open port {SHOWDOWN_PORT} within {SERVER_STARTUP_TIMEOUT:g} seconds.")
+            time.sleep(0.1)
+
+        if verbose:
+            print(f"showdown_server=status_started pid={process.pid} port={SHOWDOWN_PORT}")
+        yield
+    finally:
+        if process.poll() is None:
+            os.killpg(process.pid, signal.SIGTERM)
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait()
+        if verbose:
+            print("showdown_server=status_stopped")
 
 
 class RetryingTeamDesigner(TeamDesigner):
@@ -64,7 +133,7 @@ class ControlEnv(SinglesEnv):
     def __init__(self, observation_encoder: HumanVisibleBattleEncoder, **kwargs):
         self.observation_encoder = observation_encoder
         super().__init__(**kwargs)
-        self.observation_spaces = {agent: observation_encoder.observation_spacefor agent in self.possible_agents}
+        self.observation_spaces = {agent: observation_encoder.observation_space for agent in self.possible_agents}
 
     def calc_reward(self, battle: AbstractBattle) -> float:
         return self.reward_computing_helper(
@@ -359,6 +428,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--output-dir", type=Path, default=Path("runs/minimal_codesign"))
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--launch-server", action="store_true", help="Start and stop the bundled local Pokemon Showdown server.")
     parser.add_argument("--watch", action="store_true")
     parser.add_argument("--watch-games", type=int, default=3)
     parser.add_argument("--turn-delay", type=float, default=1.0)
@@ -366,11 +436,8 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> None:
-    args = parse_args()
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-
-    format_config = FormatConfig.from_showdown(BATTLE_FORMAT)
+def run_experiment(args: argparse.Namespace, format_config: FormatConfig) -> None:
+    """Run training or watch mode against an available Showdown server."""
     learner_config, opponent_config = make_search_configs(format_config)
     observation_encoder = HumanVisibleBattleEncoder.from_showdown(
         format_config,
@@ -438,6 +505,15 @@ def main() -> None:
     recommendation = optimizer.provide_recommendation().value
     print(f"best_evaluated_return={-best_loss:.3f} best_team={best_parameters}")
     print(f"ngopt_recommendation={recommendation}")
+
+
+def main() -> None:
+    args = parse_args()
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    format_config = FormatConfig.from_showdown(BATTLE_FORMAT)
+
+    with managed_showdown_server(args.launch_server, format_config.showdown_path, args.verbose):
+        run_experiment(args, format_config)
 
 
 if __name__ == "__main__":

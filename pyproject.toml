@@ -53,11 +53,15 @@ Homepage = "https://github.com/camral/pokemon-codesign-env"
 Repository = "https://github.com/camral/pokemon-codesign-env"
 Issues = "https://github.com/camral/pokemon-codesign-env/issues"
 
+[project.scripts]
+pokemon-codesign-install-showdown = "pokemon_codesign_env.showdown_extension.install:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
 "pokemon_codesign_env.envs" = ["leagues/*.json"]
+"pokemon_codesign_env.showdown_extension" = ["*.ts"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

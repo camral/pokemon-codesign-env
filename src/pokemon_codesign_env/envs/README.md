@@ -66,6 +66,14 @@ env = MaxBasePowerPlayerEnv(team=learner_team, battle_format="gen7ou", opponent_
 
 `PokemonLeagueEnv` provides one configurable League task for every generation. One episode contains all four League opponents followed by the Champion, each controlled by `SimpleHeuristicsPlayer`. Winning a battle advances directly to the next trainer; losing or defeating the Champion ends the episode.
 
+Install the packaged formats once before starting Showdown:
+
+```bash
+pokemon-codesign-install-showdown /path/to/pokemon-showdown
+```
+
+The installer adds `config/pokemon-codesign-formats.ts` through Showdown's supported custom-format loader and builds the server. No simulator source files are modified. An existing unrelated `config/custom-formats.ts` is never overwritten; import `Formats` from `./pokemon-codesign-formats` and spread it into that file's `Formats` array when prompted.
+
 ```python
 from pokemon_codesign_env.configs import FormatConfig, TeamSearchConfig
 from pokemon_codesign_env.envs import PokemonLeagueEnv, get_pokemon_league
@@ -77,7 +85,7 @@ learner_team = TeamDesigner(TeamSearchConfig(format=format_config))
 env = PokemonLeagueEnv(team=learner_team, generation=4, difficulty=0)
 ```
 
-`difficulty=0` heals the designed team before every trainer. `difficulty=1` carries current HP, fainted Pokemon, non-volatile status, move PP, and lost held items into the next battle. Temporary battle effects such as stat changes, weather, volatile status, Mega Evolution, Dynamax, and Terastallization reset normally. The observation contains an additional `league` `MultiDiscrete` value with the current trainer index, number of trainers remaining, and difficulty.
+`difficulty=0` heals the designed team before every trainer. `difficulty=1` carries current HP, fainted Pokemon, non-volatile status, move PP, and lost held items into the next battle. The state is encoded in the standard packed-team Poké Ball metadata and restored by the custom format; this metadata field is therefore reserved for hard League tasks. Temporary battle effects such as stat changes, weather, volatile status, Mega Evolution, Dynamax, and Terastallization reset normally. The observation contains an additional `league` `MultiDiscrete` value with the current trainer index, number of trainers remaining, and difficulty.
 
 `PokemonLeagueBattleEnv` remains available for experiments that need an isolated battle against one named trainer:
 

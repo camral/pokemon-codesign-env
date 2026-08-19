@@ -25,6 +25,17 @@ Install the reinforcement-learning dependencies:
 pip install -e '.[rl]'
 ```
 
+Install the packaged Pokemon League formats into the bundled Showdown server:
+
+```bash
+pokemon-codesign-install-showdown pokemon-showdown
+```
+
+This uses Showdown's supported `config/custom-formats.ts` extension point and
+builds the server. It does not patch the Showdown simulator. If the server
+already has custom formats, the command preserves them and explains the import
+that must be added manually.
+
 Start the bundled Pokemon Showdown server in another terminal:
 
 ```bash

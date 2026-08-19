@@ -14,6 +14,16 @@ from pokemon_codesign_env.envs.base import BaselineOpponentEnv
 from pokemon_codesign_env.showdown import validate_team
 
 StatSpread = tuple[int, int, int, int, int, int]
+LEAGUE_STATE_PREFIX = "pcg1"
+STATUS_CODES = {
+    None: "0",
+    "brn": "b",
+    "frz": "f",
+    "par": "a",
+    "psn": "p",
+    "slp": "s",
+    "tox": "t",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,7 +77,7 @@ class PokemonLeague:
 
     @property
     def battle_format(self) -> str:
-        return f"gen{self.generation}customgame"
+        return f"gen{self.generation}pokemonleague"
 
     def get_trainer(self, name: str) -> LeagueTrainer:
         trainer_id = to_id_str(name)
@@ -232,19 +242,31 @@ def _apply_team_state(team: str, states: tuple[LeaguePokemonState, ...]) -> str:
         fields = packed.split("|")
         if len(fields) != 12:
             raise ValueError("Cannot apply persistent state to an invalid packed team.")
+        try:
+            status_code = STATUS_CODES[state.status]
+        except KeyError:
+            raise ValueError(f"Cannot persist unsupported status {state.status!r}.") from None
+        if not 0 <= state.hp < 36**3:
+            raise ValueError(f"Cannot persist HP outside 0-{36**3 - 1}: {state.hp}")
+        if any(not 0 <= pp < 36**2 for pp in state.move_pp):
+            raise ValueError(f"Cannot persist move PP outside 0-{36**2 - 1}.")
+
+        encoded_state = "".join(
+            [
+                LEAGUE_STATE_PREFIX,
+                np.base_repr(state.hp, base=36).lower().zfill(3),
+                status_code,
+                *(np.base_repr(pp, base=36).lower().zfill(2) for pp in state.move_pp),
+            ]
+        )
         fields[2] = state.item or ""
         misc = fields[11].split(",")
         misc.extend([""] * (6 - len(misc)))
-        fields[11] = ",".join(
-            [
-                *misc[:6],
-                str(state.hp),
-                state.status or "",
-                ".".join(str(pp) for pp in state.move_pp),
-            ]
-        )
-        restored_team.append("|".join(fields))
-    return "]".join(restored_team)
+        misc[2] = encoded_state
+        fields[11] = ",".join(misc[:6])
+        restored_team.append((state.hp == 0, "|".join(fields)))
+    restored_team.sort(key=lambda pokemon: pokemon[0])
+    return "]".join(packed for _, packed in restored_team)
 
 
 class PokemonLeagueEnv(Env):

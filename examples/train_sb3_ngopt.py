@@ -64,10 +64,7 @@ class ControlEnv(SinglesEnv):
     def __init__(self, observation_encoder: HumanVisibleBattleEncoder, **kwargs):
         self.observation_encoder = observation_encoder
         super().__init__(**kwargs)
-        self.observation_spaces = {
-            agent: observation_encoder.observation_space
-            for agent in self.possible_agents
-        }
+        self.observation_spaces = {agent: observation_encoder.observation_spacefor agent in self.possible_agents}
 
     def calc_reward(self, battle: AbstractBattle) -> float:
         return self.reward_computing_helper(
@@ -89,19 +86,11 @@ class StructuredSingleAgentWrapper(SingleAgentWrapper):
         super().__init__(env, opponent)
         state_space = self.observation_space["observation"]
         mask_size = self.observation_space["action_mask"].shape[0]
-        self.observation_space = spaces.Dict(
-            {
-                **state_space.spaces,
-                "action_mask": spaces.MultiBinary(mask_size),
-            }
-        )
+        self.observation_space = spaces.Dict({**state_space.spaces, "action_mask": spaces.MultiBinary(mask_size)})
 
     @staticmethod
     def _structured(observation):
-        return {
-            **observation["observation"],
-            "action_mask": np.asarray(observation["action_mask"], dtype=np.int8),
-        }
+        return {**observation["observation"], "action_mask": np.asarray(observation["action_mask"], dtype=np.int8)}
 
     def reset(self, *, seed=None, options=None):
         observation, info = super().reset(seed=seed, options=options)
@@ -116,33 +105,20 @@ class ObservationFeaturesExtractor(BaseFeaturesExtractor):
     """Concatenate raw state values while keeping the action mask separate."""
 
     def __init__(self, observation_space):
-        feature_keys = tuple(
-            key
-            for key in ("categorical", "continuous", "binary")
-            if key in observation_space.spaces
-        )
-        features_dim = sum(
-            int(np.prod(observation_space[key].shape)) for key in feature_keys
-        )
+        feature_keys = tuple(key for key in ("categorical", "continuous", "binary") if key in observation_space.spaces)
+        features_dim = sum(int(np.prod(observation_space[key].shape)) for key in feature_keys)
         super().__init__(observation_space, features_dim=features_dim)
         self.feature_keys = feature_keys
 
     def forward(self, observations):
-        return torch.cat(
-            [observations[key].float() for key in self.feature_keys], dim=1
-        )
+        return torch.cat([observations[key].float() for key in self.feature_keys], dim=1)
 
 
 class MaskedActorCriticPolicy(ActorCriticPolicy):
     """Apply poke-env's action mask to PPO's categorical distribution."""
 
     def __init__(self, *args, **kwargs):
-        super().__init__(
-            *args,
-            **kwargs,
-            net_arch=[64, 64],
-            features_extractor_class=ObservationFeaturesExtractor,
-        )
+        super().__init__(*args,**kwargs,net_arch=[64, 64],features_extractor_class=ObservationFeaturesExtractor,)
         self._action_mask = None
 
     def forward(self, observations, deterministic=False):
@@ -162,10 +138,7 @@ class MaskedActorCriticPolicy(ActorCriticPolicy):
         if self.share_features_extractor:
             extractor = features_extractor or self.features_extractor
             return extractor(observations)
-        return (
-            self.pi_features_extractor(observations),
-            self.vf_features_extractor(observations),
-        )
+        return (self.pi_features_extractor(observations), self.vf_features_extractor(observations))
 
     def get_distribution(self, observations):
         features = self.pi_features_extractor(observations)
@@ -212,9 +185,7 @@ def make_ngopt_parameterization(search_config: TeamSearchConfig):
         pokemon: ng.p.Dict(
             species=ng.p.Choice(parameter_space["species"]["values"]),
             nature=ng.p.Choice(parameter_space["nature"]["values"]),
-        )
-        for pokemon, parameter_space in parameter_spaces.items()
-    })
+        ) for pokemon, parameter_space in parameter_spaces.items()})
 
 
 def make_control_env(
@@ -240,10 +211,7 @@ def make_control_env(
         save_replays=save_replays,
     )
     battle_env.agent2.update_team(opponent_team)
-    opponent_policy = RandomPlayer(
-        battle_format=battle_format,
-        start_listening=False,
-    )
+    opponent_policy = RandomPlayer(battle_format=battle_format, start_listening=False)
     return Monitor(StructuredSingleAgentWrapper(battle_env, opponent_policy))
 
 
@@ -338,23 +306,14 @@ def watch_saved_controller(
     controller_path = output_dir / "best_controller"
     team_path = output_dir / "best_team.json"
     schema_path = output_dir / "observation_schema.json"
-    if (
-        not controller_path.with_suffix(".zip").exists()
-        or not team_path.exists()
-        or not schema_path.exists()
-    ):
-        raise FileNotFoundError(
-            f"No compatible saved controller, team, and observation schema found in "
-            f"{output_dir}. Run training first."
-        )
+    if (not controller_path.with_suffix(".zip").exists() or not team_path.exists() or not schema_path.exists()):
+        raise FileNotFoundError(f"No compatible saved controller, team, and observation schema found in {output_dir}. Run training first.")
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     if schema != observation_encoder.get_schema():
         raise ValueError("The saved controller uses a different observation schema. Retrain it.")
 
     learner_team = RetryingTeamDesigner(learner_config)
-    learner_team.set_optimizable_parameter_values(
-        json.loads(team_path.read_text(encoding="utf-8"))
-    )
+    learner_team.set_optimizable_parameter_values(json.loads(team_path.read_text(encoding="utf-8")))
     opponent_team = RetryingTeamDesigner(opponent_config)
     replay_dir = output_dir / "replays"
     env = make_control_env(
@@ -373,10 +332,7 @@ def watch_saved_controller(
             observation, _ = env.reset()
             battle_env = env.unwrapped.env
             battle_tag = battle_env.battle1.battle_tag
-            print(
-                f"watch_game={game}/{games} "
-                f"url=http://localhost:8000/{battle_tag}"
-            )
+            print(f"watch_game={game}/{games} url=http://localhost:8000/{battle_tag}")
             time.sleep(start_delay)
 
             terminated = False
@@ -434,11 +390,7 @@ def main() -> None:
         )
         return
 
-    (args.output_dir / "observation_schema.json").write_text(
-        json.dumps(observation_encoder.get_schema(), indent=2)
-        + "\n",
-        encoding="utf-8",
-    )
+    (args.output_dir / "observation_schema.json").write_text(json.dumps(observation_encoder.get_schema(), indent=2) + "\n", encoding="utf-8")
 
     parametrization = make_ngopt_parameterization(learner_config)
     parametrization.random_state.seed(args.seed)
@@ -463,10 +415,7 @@ def main() -> None:
         candidate = optimizer.ask()
         parameter_values = candidate.value
         if args.verbose:
-            print(
-                f"candidate={evaluation + 1}/{args.ng_budget} "
-                f"status=starting parameters={parameter_values}"
-            )
+            print(f"candidate={evaluation + 1}/{args.ng_budget} status=starting parameters={parameter_values}")
         loss, model = evaluate_candidate(
             parameter_values,
             learner_config,
@@ -478,18 +427,13 @@ def main() -> None:
             args.verbose,
         )
         optimizer.tell(candidate, loss)
-        print(
-            f"candidate={evaluation + 1}/{args.ng_budget} "
-            f"mean_return={-loss:.3f} parameters={parameter_values}"
-        )
+        print(f"candidate={evaluation + 1}/{args.ng_budget} mean_return={-loss:.3f} parameters={parameter_values}")
 
         if model is not None and loss < best_loss:
             best_loss = loss
             best_parameters = parameter_values
             model.save(args.output_dir / "best_controller")
-            (args.output_dir / "best_team.json").write_text(
-                json.dumps(best_parameters, indent=2) + "\n"
-            )
+            (args.output_dir / "best_team.json").write_text(json.dumps(best_parameters, indent=2) + "\n")
 
     recommendation = optimizer.provide_recommendation().value
     print(f"best_evaluated_return={-best_loss:.3f} best_team={best_parameters}")

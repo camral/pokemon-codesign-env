@@ -120,18 +120,22 @@ class TeamDesigner(Teambuilder):
         self.parameter_spaces[cache_key] = parameter_space
         return parameter_space
 
-    def get_optimizable_parameters(self) -> dict:
+    def get_optimizable_parameter_space(self) -> dict:
         """
-        This function returns the parameters that are used to navigate the search space for the team design process.
-        :return: A dictionary containing the parameters that can be optimized.
+        This function returns the parameter spaces used to navigate the team design search space.
+        :return: A dictionary containing the spaces for parameters that can be optimized.
         """
         return {pokemon: {param: self.get_parameter_space(param) for param in parameters}
             for pokemon, parameters in self.optimizable_attributes.items() if parameters}
 
-    def set_optimizable_parameters(self, parameters: dict):
+    def get_optimizable_parameter_values(self) -> dict:
+        """Return the current concrete values for all optimizable parameters."""
+        return deepcopy(self.optimizable_parameter_values)
+
+    def set_optimizable_parameter_values(self, parameters: dict):
         """
-        This function sets the parameters that are used to navigate the search space for the team design process.
-        :param parameters: A dictionary containing the parameters that can be optimized.
+        This function sets the concrete values used to navigate the team design search space.
+        :param parameters: A dictionary containing values for all optimizable parameters.
         """
         if not isinstance(parameters, dict):
             raise TypeError("parameters must be a dictionary.")
@@ -388,19 +392,26 @@ class BatchedTeamDesigner:
         self.team_designers = team_designers
         self.search_config = search_config
 
-    def get_optimizable_parameters(self) -> list[dict]:
+    def get_optimizable_parameter_space(self) -> list[dict]:
         """Return one optimizer-facing parameter space per TeamDesigner."""
-        return [designer.get_optimizable_parameters() for designer in self.team_designers]
+        return [designer.get_optimizable_parameter_space() for designer in self.team_designers]
 
-    def set_optimizable_parameters(self, parameters: list[dict]) -> None:
-        """Assign one optimizer parameter dictionary to each TeamDesigner."""
-        if not isinstance(parameters, list):
-            raise TypeError("parameters must be a list.")
-        if len(parameters) != len(self.team_designers):
-            raise ValueError(f"Expected {len(self.team_designers)} parameter sets, got {len(parameters)}.")
+    def get_optimizable_parameter_values(self) -> list[dict]:
+        """Return one concrete optimizer parameter dictionary per TeamDesigner."""
+        return [designer.get_optimizable_parameter_values() for designer in self.team_designers]
 
-        for designer, team_parameters in zip(self.team_designers, parameters, strict=True):
-            designer.set_optimizable_parameters(team_parameters)
+    def set_optimizable_parameter_values(self, parameter_values: list[dict]) -> None:
+        """Assign one concrete optimizer parameter dictionary to each TeamDesigner."""
+        if not isinstance(parameter_values, list):
+            raise TypeError("parameter_values must be a list.")
+        if len(parameter_values) != len(self.team_designers):
+            raise ValueError(
+                f"Expected {len(self.team_designers)} parameter sets, "
+                f"got {len(parameter_values)}."
+            )
+
+        for designer, team_parameters in zip(self.team_designers, parameter_values, strict=True):
+            designer.set_optimizable_parameter_values(team_parameters)
 
     def sample_observations(self) -> list[dict]:
         """Sample one observation dictionary per TeamDesigner."""

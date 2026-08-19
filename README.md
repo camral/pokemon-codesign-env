@@ -15,10 +15,9 @@ Potential environment setups:
 ## Minimal SB3 + NGOpt experiment
 
 The example in `examples/train_sb3_ngopt.py` uses NGOpt to choose the species
-and nature of all six Pokemon on a Gen 4 Custom Game team. It trains a fresh
-masked PPO controller for each candidate against a random-action opponent with
-a newly generated six-Pokemon random team for every battle. Custom Game avoids
-transfer-legality failures when independently sampling random species and moves.
+and nature of all six Pokemon. It trains a fresh masked PPO controller for each
+candidate using `RandomPlayerEnv` by default. Each baseline environment gives
+the opponent a newly generated random team for every battle.
 
 Install the reinforcement-learning dependencies:
 
@@ -46,6 +45,17 @@ python examples/train_sb3_ngopt.py \
 Add `--launch-server` to start the bundled local Showdown server automatically.
 The script reuses an existing server on port 8000 when present; otherwise it
 starts one, waits until it is ready, and stops only that server when it exits.
+
+Switch baseline environments with one option:
+
+```bash
+python examples/train_sb3_ngopt.py --environment max-base-power
+python examples/train_sb3_ngopt.py --environment simple-heuristics
+```
+
+The available values are `random`, `max-base-power`, and `simple-heuristics`.
+Use the same value for training and `--watch` because each preset has a different
+generation and ruleset.
 
 `--verbose` prints each candidate, SB3's PPO rollout metrics, and evaluation
 progress. Omit it for one summary line per candidate.

@@ -61,14 +61,14 @@ class BaselineOpponentEnv(SingleAgentWrapper):
     OPPONENT_CLASS: type
     OBSERVATION_CONFIG = ObservationConfig()
 
-    def __init__(self, team=None, battle_format: str | None = None, opponent_team_format: str | None = None, observation_config: ObservationConfig | None = None, showdown_path: Path | None = None, opponent_team=None, opponent_kwargs: dict | None = None, **env_kwargs):
+    def __init__(self, team=None, battle_format: str | None = None, opponent_team_format: str | None = None, observation_config: ObservationConfig | None = None, observation_encoder: HumanVisibleBattleEncoder | None = None, showdown_path: Path | None = None, opponent_team=None, opponent_kwargs: dict | None = None, **env_kwargs):
         if team is None:
             raise ValueError("team must contain the co-design agent's designed team")
         battle_format = battle_format or self.BATTLE_FORMAT
         self.opponent_team_format = opponent_team_format or self.OPPONENT_TEAM_FORMAT
         observation_config = observation_config or self.OBSERVATION_CONFIG
         self.format_config = FormatConfig.from_showdown(battle_format, showdown_path)
-        self.observation_encoder = HumanVisibleBattleEncoder.from_showdown(self.format_config, observation_config=observation_config)
+        self.observation_encoder = observation_encoder or HumanVisibleBattleEncoder.from_showdown(self.format_config, observation_config=observation_config)
         if opponent_team is None:
             opponent_team = self.make_random_opponent_team()
 

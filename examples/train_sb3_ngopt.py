@@ -2,8 +2,8 @@
 
 Use --launch-server to manage a local Pokemon Showdown server automatically.
 NGOpt chooses the species and nature of all six Pokemon. A fresh PPO controller
-is trained for each candidate against a random policy whose team is regenerated
-every battle.
+is trained for each candidate against a selectable baseline environment whose
+opponent team is regenerated every battle.
 """
 
 import argparse
@@ -14,16 +14,11 @@ import socket
 import subprocess
 import time
 from contextlib import contextmanager
-from dataclasses import replace
 from pathlib import Path
 
 import nevergrad as ng
 import numpy as np
 import torch
-from gymnasium import spaces
-from poke_env.battle import AbstractBattle
-from poke_env.environment import SingleAgentWrapper, SinglesEnv
-from poke_env.player import RandomPlayer
 from poke_env.ps_client import AccountConfiguration
 from stable_baselines3 import PPO
 from stable_baselines3.common.monitor import Monitor
@@ -37,16 +32,22 @@ from pokemon_codesign_env.configs import (
     SelectionMode,
     TeamSearchConfig,
 )
+from pokemon_codesign_env.envs import MaxBasePowerPlayerEnv, RandomPlayerEnv, SimpleHeuristicsPlayerEnv
+from pokemon_codesign_env.envs.base import BaselineOpponentEnv
 from pokemon_codesign_env.observations import HumanVisibleBattleEncoder
 from pokemon_codesign_env.team_designer import TeamDesigner
 
-BATTLE_FORMAT = "gen4customgame"
 TEAM_SIZE = 6
 OBSERVATION_CONFIG = ObservationConfig(team_size=TEAM_SIZE)
 INVALID_CANDIDATE_LOSS = 1_000_000.0
 SHOWDOWN_HOST = "127.0.0.1"
 SHOWDOWN_PORT = 8000
 SERVER_STARTUP_TIMEOUT = 120.0
+ENVIRONMENTS = {
+    "random": RandomPlayerEnv,
+    "max-base-power": MaxBasePowerPlayerEnv,
+    "simple-heuristics": SimpleHeuristicsPlayerEnv,
+}
 
 
 def is_server_running(host: str = SHOWDOWN_HOST, port: int = SHOWDOWN_PORT) -> bool:
@@ -127,49 +128,6 @@ class RetryingTeamDesigner(TeamDesigner):
         raise ValueError(f"Could not generate a valid team: {last_error}") from last_error
 
 
-class ControlEnv(SinglesEnv):
-    """Small poke-env environment used only by this experiment."""
-
-    def __init__(self, observation_encoder: HumanVisibleBattleEncoder, **kwargs):
-        self.observation_encoder = observation_encoder
-        super().__init__(**kwargs)
-        self.observation_spaces = {agent: observation_encoder.observation_space for agent in self.possible_agents}
-
-    def calc_reward(self, battle: AbstractBattle) -> float:
-        return self.reward_computing_helper(
-            battle,
-            fainted_value=2.0,
-            hp_value=1.0,
-            victory_value=10.0,
-            number_of_pokemons=max(1, battle.team_size),
-        )
-
-    def embed_battle(self, battle: AbstractBattle) -> dict[str, np.ndarray]:
-        return self.observation_encoder.encode(battle)
-
-
-class StructuredSingleAgentWrapper(SingleAgentWrapper):
-    """Expose state components and the action mask in one Gym Dict space."""
-
-    def __init__(self, env, opponent):
-        super().__init__(env, opponent)
-        state_space = self.observation_space["observation"]
-        mask_size = self.observation_space["action_mask"].shape[0]
-        self.observation_space = spaces.Dict({**state_space.spaces, "action_mask": spaces.MultiBinary(mask_size)})
-
-    @staticmethod
-    def _structured(observation):
-        return {**observation["observation"], "action_mask": np.asarray(observation["action_mask"], dtype=np.int8)}
-
-    def reset(self, *, seed=None, options=None):
-        observation, info = super().reset(seed=seed, options=options)
-        return self._structured(observation), info
-
-    def step(self, action):
-        observation, reward, terminated, truncated, info = super().step(action)
-        return self._structured(observation), reward, terminated, truncated, info
-
-
 class ObservationFeaturesExtractor(BaseFeaturesExtractor):
     """Concatenate raw state values while keeping the action mask separate."""
 
@@ -225,24 +183,16 @@ class MaskedActorCriticPolicy(ActorCriticPolicy):
         return self.action_dist.proba_distribution(action_logits=action_logits + mask)
 
 
-def make_search_configs(format_config: FormatConfig) -> tuple[TeamSearchConfig, TeamSearchConfig]:
-    """Create the optimized learner and fully random opponent configurations."""
-    format_config = replace(format_config, max_move_count=4)
-    learner_config = TeamSearchConfig(
+def make_search_config(format_config: FormatConfig) -> TeamSearchConfig:
+    """Create the optimized learner configuration for the selected format."""
+    return TeamSearchConfig(
         format=format_config,
         team_size=TEAM_SIZE,
         species=SelectionMode.OPTIMIZED,
         natures=AttributeMode.OPTIMIZED,
-        generations_allowed=(1, 2, 3, 4),
+        generations_allowed=tuple(range(1, format_config.generation + 1)),
+        types_allowed=("water",) if "monotype" in format_config.format_id else None,
     )
-    opponent_config = TeamSearchConfig(
-        format=format_config,
-        team_size=TEAM_SIZE,
-        species=SelectionMode.RANDOM,
-        natures=AttributeMode.RANDOM,
-        generations_allowed=(1, 2, 3, 4),
-    )
-    return learner_config, opponent_config
 
 
 def make_ngopt_parameterization(search_config: TeamSearchConfig):
@@ -258,30 +208,21 @@ def make_ngopt_parameterization(search_config: TeamSearchConfig):
 
 
 def make_control_env(
+    environment_class: type[BaselineOpponentEnv],
     learner_team: TeamDesigner,
-    opponent_team: TeamDesigner,
-    battle_format: str,
     observation_encoder: HumanVisibleBattleEncoder,
     save_replays: bool | str = False,
     account_configuration1: AccountConfiguration | None = None,
     account_configuration2: AccountConfiguration | None = None,
 ):
-    """Create one single-agent environment with different teams on each side."""
-    battle_env = ControlEnv(
+    """Create the selected baseline environment for one learner team."""
+    return Monitor(environment_class(
+        team=learner_team,
         observation_encoder=observation_encoder,
         account_configuration1=account_configuration1,
         account_configuration2=account_configuration2,
-        battle_format=battle_format,
-        team=learner_team,
-        choose_on_teampreview=False,
-        strict=False,
-        log_level=40,
-        open_timeout=None,
         save_replays=save_replays,
-    )
-    battle_env.agent2.update_team(opponent_team)
-    opponent_policy = RandomPlayer(battle_format=battle_format, start_listening=False)
-    return Monitor(StructuredSingleAgentWrapper(battle_env, opponent_policy))
+    ))
 
 
 def evaluate_controller(model: PPO, env, episodes: int) -> float:
@@ -306,8 +247,8 @@ def evaluate_controller(model: PPO, env, episodes: int) -> float:
 
 def evaluate_candidate(
     parameter_values: dict,
+    environment_class: type[BaselineOpponentEnv],
     learner_config: TeamSearchConfig,
-    opponent_config: TeamSearchConfig,
     ppo_timesteps: int,
     evaluation_episodes: int,
     seed: int,
@@ -319,9 +260,6 @@ def evaluate_candidate(
     learner_team.set_optimizable_parameter_values(parameter_values)
     learner_team.rng = np.random.default_rng(seed)
 
-    opponent_team = RetryingTeamDesigner(opponent_config)
-    opponent_team.rng = np.random.default_rng(seed + 1)
-
     try:
         learner_team.yield_team()
     except ValueError as error:
@@ -329,9 +267,8 @@ def evaluate_candidate(
         return INVALID_CANDIDATE_LOSS, None
 
     env = make_control_env(
+        environment_class,
         learner_team,
-        opponent_team,
-        learner_config.format.format_id,
         observation_encoder,
     )
     rollout_steps = min(256, max(2, ppo_timesteps))
@@ -367,8 +304,8 @@ def watch_saved_controller(
     games: int,
     turn_delay: float,
     start_delay: float,
+    environment_class: type[BaselineOpponentEnv],
     learner_config: TeamSearchConfig,
-    opponent_config: TeamSearchConfig,
     observation_encoder: HumanVisibleBattleEncoder,
 ) -> None:
     """Play slowed exhibition games with the saved best team and controller."""
@@ -383,16 +320,14 @@ def watch_saved_controller(
 
     learner_team = RetryingTeamDesigner(learner_config)
     learner_team.set_optimizable_parameter_values(json.loads(team_path.read_text(encoding="utf-8")))
-    opponent_team = RetryingTeamDesigner(opponent_config)
     replay_dir = output_dir / "replays"
     env = make_control_env(
+        environment_class,
         learner_team,
-        opponent_team,
-        learner_config.format.format_id,
         observation_encoder,
         save_replays=str(replay_dir),
         account_configuration1=AccountConfiguration("CodesignRL", None),
-        account_configuration2=AccountConfiguration("RandomTeam", None),
+        account_configuration2=AccountConfiguration("BaselineOpponent", None),
     )
     model = PPO.load(controller_path, env=env, device="cpu")
 
@@ -427,6 +362,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--evaluation-episodes", type=int, default=8)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--output-dir", type=Path, default=Path("runs/minimal_codesign"))
+    parser.add_argument("--environment", choices=ENVIRONMENTS, default="random", help="Baseline environment and opponent policy.")
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--launch-server", action="store_true", help="Start and stop the bundled local Pokemon Showdown server.")
     parser.add_argument("--watch", action="store_true")
@@ -436,13 +372,11 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def run_experiment(args: argparse.Namespace, format_config: FormatConfig) -> None:
+def run_experiment(args: argparse.Namespace, environment_class: type[BaselineOpponentEnv], format_config: FormatConfig) -> None:
     """Run training or watch mode against an available Showdown server."""
-    learner_config, opponent_config = make_search_configs(format_config)
+    learner_config = make_search_config(format_config)
     observation_encoder = HumanVisibleBattleEncoder.from_showdown(
         format_config,
-        generations_allowed=learner_config.generations_allowed,
-        types_allowed=learner_config.types_allowed,
         observation_config=OBSERVATION_CONFIG,
     )
     if args.watch:
@@ -451,8 +385,8 @@ def run_experiment(args: argparse.Namespace, format_config: FormatConfig) -> Non
             args.watch_games,
             args.turn_delay,
             args.watch_start_delay,
+            environment_class,
             learner_config,
-            opponent_config,
             observation_encoder,
         )
         return
@@ -469,7 +403,7 @@ def run_experiment(args: argparse.Namespace, format_config: FormatConfig) -> Non
 
     if args.verbose:
         print(
-            f"format={BATTLE_FORMAT} team_size={TEAM_SIZE} "
+            f"environment={args.environment} format={format_config.format_id} team_size={TEAM_SIZE} "
             f"ng_budget={args.ng_budget} ppo_timesteps={args.ppo_timesteps} "
             f"evaluation_episodes={args.evaluation_episodes} seed={args.seed} "
             f"observation_features={len(observation_encoder.feature_names)}"
@@ -485,8 +419,8 @@ def run_experiment(args: argparse.Namespace, format_config: FormatConfig) -> Non
             print(f"candidate={evaluation + 1}/{args.ng_budget} status=starting parameters={parameter_values}")
         loss, model = evaluate_candidate(
             parameter_values,
+            environment_class,
             learner_config,
-            opponent_config,
             args.ppo_timesteps,
             args.evaluation_episodes,
             args.seed + evaluation,
@@ -510,10 +444,11 @@ def run_experiment(args: argparse.Namespace, format_config: FormatConfig) -> Non
 def main() -> None:
     args = parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    format_config = FormatConfig.from_showdown(BATTLE_FORMAT)
+    environment_class = ENVIRONMENTS[args.environment]
+    format_config = FormatConfig.from_showdown(environment_class.BATTLE_FORMAT)
 
     with managed_showdown_server(args.launch_server, format_config.showdown_path, args.verbose):
-        run_experiment(args, format_config)
+        run_experiment(args, environment_class, format_config)
 
 
 if __name__ == "__main__":

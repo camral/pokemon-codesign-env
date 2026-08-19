@@ -64,7 +64,7 @@ env = MaxBasePowerPlayerEnv(team=learner_team, battle_format="gen7ou", opponent_
 
 ## Pokemon League environments
 
-`PokemonLeagueEnv` provides one configurable League task for every generation. The opponent always uses `SimpleHeuristicsPlayer`; `generation` selects the historical ruleset and `opponent` selects an Elite Four member or Champion.
+`PokemonLeagueEnv` provides one configurable League task for every generation. One episode contains all four League opponents followed by the Champion, each controlled by `SimpleHeuristicsPlayer`. Winning a battle advances directly to the next trainer; losing or defeating the Champion ends the episode.
 
 ```python
 from pokemon_codesign_env.configs import FormatConfig, TeamSearchConfig
@@ -74,7 +74,17 @@ from pokemon_codesign_env.team_designer import TeamDesigner
 league = get_pokemon_league(4)
 format_config = FormatConfig.from_showdown(league.battle_format)
 learner_team = TeamDesigner(TeamSearchConfig(format=format_config))
-env = PokemonLeagueEnv(team=learner_team, generation=4, opponent="Cynthia")
+env = PokemonLeagueEnv(team=learner_team, generation=4, difficulty=0)
+```
+
+`difficulty=0` heals the designed team before every trainer. `difficulty=1` carries current HP, fainted Pokemon, non-volatile status, move PP, and lost held items into the next battle. Temporary battle effects such as stat changes, weather, volatile status, Mega Evolution, Dynamax, and Terastallization reset normally. The observation contains an additional `league` `MultiDiscrete` value with the current trainer index, number of trainers remaining, and difficulty.
+
+`PokemonLeagueBattleEnv` remains available for experiments that need an isolated battle against one named trainer:
+
+```python
+from pokemon_codesign_env.envs import PokemonLeagueBattleEnv
+
+env = PokemonLeagueBattleEnv(team=learner_team, generation=4, opponent="Cynthia")
 ```
 
 The available presets are:

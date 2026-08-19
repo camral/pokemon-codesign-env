@@ -1,9 +1,12 @@
 from pokemon_codesign_env.envs.max_base_power_player_env import MaxBasePowerPlayerEnv
 from pokemon_codesign_env.envs.pokemon_league_env import (
+    LeagueDifficulty,
     LeaguePokemon,
+    LeaguePokemonState,
     LeagueTeam,
     LeagueTrainer,
     PokemonLeague,
+    PokemonLeagueBattleEnv,
     PokemonLeagueEnv,
     get_pokemon_league,
 )
@@ -11,11 +14,14 @@ from pokemon_codesign_env.envs.random_player_env import RandomPlayerEnv
 from pokemon_codesign_env.envs.simple_heuristics_player_env import SimpleHeuristicsPlayerEnv
 
 __all__ = [
+    "LeagueDifficulty",
     "LeaguePokemon",
+    "LeaguePokemonState",
     "LeagueTeam",
     "LeagueTrainer",
     "MaxBasePowerPlayerEnv",
     "PokemonLeague",
+    "PokemonLeagueBattleEnv",
     "PokemonLeagueEnv",
     "RandomPlayerEnv",
     "SimpleHeuristicsPlayerEnv",

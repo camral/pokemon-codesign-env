@@ -1,8 +1,11 @@
 import json
 from dataclasses import dataclass
+from enum import IntEnum
 from importlib.resources import files
 from pathlib import Path
 
+import numpy as np
+from gymnasium import Env, spaces
 from poke_env.data import to_id_str
 from poke_env.player import SimpleHeuristicsPlayer
 from poke_env.teambuilder import Teambuilder, TeambuilderPokemon
@@ -37,6 +40,19 @@ class LeagueTrainer:
     name: str
     team: tuple[LeaguePokemon, ...]
     role: str = "elite_four"
+
+
+class LeagueDifficulty(IntEnum):
+    EASY = 0
+    HARD = 1
+
+
+@dataclass(frozen=True, slots=True)
+class LeaguePokemonState:
+    hp: int
+    status: str | None
+    move_pp: tuple[int, ...]
+    item: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,8 +168,8 @@ class LeagueTeam(Teambuilder):
         return self._packed_team
 
 
-class PokemonLeagueEnv(BaselineOpponentEnv):
-    """Battle one configured Pokemon League trainer using the heuristic controller."""
+class PokemonLeagueBattleEnv(BaselineOpponentEnv):
+    """Battle one configured Pokemon League trainer."""
 
     BATTLE_FORMAT = "gen9customgame"
     OPPONENT_TEAM_FORMAT = "gen9randombattle"
@@ -177,3 +193,215 @@ class PokemonLeagueEnv(BaselineOpponentEnv):
             opponent_team=opponent_team,
             **env_kwargs,
         )
+
+
+def _resolve_team(team: str | Teambuilder) -> str:
+    return team.yield_team() if isinstance(team, Teambuilder) else team
+
+
+def _snapshot_team(battle) -> tuple[LeaguePokemonState, ...]:
+    states = []
+    for pokemon in battle.team.values():
+        status = None
+        if not pokemon.fainted and pokemon.status is not None:
+            status = pokemon.status.name.lower()
+        item = pokemon.item
+        if item in {None, "unknown_item"}:
+            item = None
+        states.append(
+            LeaguePokemonState(
+                hp=pokemon.current_hp,
+                status=status,
+                move_pp=tuple(move.current_pp for move in pokemon.base_moves.values()),
+                item=item,
+            )
+        )
+    return tuple(states)
+
+
+def _apply_team_state(team: str, states: tuple[LeaguePokemonState, ...]) -> str:
+    packed_pokemon = team.split("]")
+    if len(packed_pokemon) != len(states):
+        raise ValueError(
+            f"Persistent team contains {len(packed_pokemon)} Pokemon but state contains "
+            f"{len(states)}."
+        )
+
+    restored_team = []
+    for packed, state in zip(packed_pokemon, states, strict=True):
+        fields = packed.split("|")
+        if len(fields) != 12:
+            raise ValueError("Cannot apply persistent state to an invalid packed team.")
+        fields[2] = state.item or ""
+        misc = fields[11].split(",")
+        misc.extend([""] * (6 - len(misc)))
+        fields[11] = ",".join(
+            [
+                *misc[:6],
+                str(state.hp),
+                state.status or "",
+                ".".join(str(pp) for pp in state.move_pp),
+            ]
+        )
+        restored_team.append("|".join(fields))
+    return "]".join(restored_team)
+
+
+class PokemonLeagueEnv(Env):
+    """Face every trainer in a generation's Pokemon League as one episode."""
+
+    metadata = {"render_modes": ["human"]}
+
+    def __init__(
+        self,
+        team,
+        generation: int,
+        difficulty: int = 0,
+        showdown_path: Path | None = None,
+        **env_kwargs,
+    ):
+        if team is None:
+            raise ValueError("team must contain the co-design agent's designed team")
+        try:
+            self.difficulty = LeagueDifficulty(difficulty)
+        except ValueError:
+            raise ValueError(f"difficulty must be 0 or 1, got {difficulty}") from None
+
+        self.team = team
+        self.league = get_pokemon_league(generation)
+        self.current_trainer_index = 0
+        self._base_team = None
+        self._episode_active = False
+        self._battle_env = PokemonLeagueBattleEnv(
+            team=team,
+            generation=generation,
+            opponent=self.league.trainers[0].name,
+            showdown_path=showdown_path,
+            **env_kwargs,
+        )
+        self.action_space = self._battle_env.action_space
+        self.observation_space = spaces.Dict(
+            {
+                **self._battle_env.observation_space.spaces,
+                "league": spaces.MultiDiscrete(
+                    [len(self.league.trainers), len(self.league.trainers) + 1, 2]
+                ),
+            }
+        )
+
+    @property
+    def current_trainer(self) -> LeagueTrainer:
+        return self.league.trainers[self.current_trainer_index]
+
+    def _league_observation(self, observation):
+        return {
+            **observation,
+            "league": np.asarray(
+                [
+                    self.current_trainer_index,
+                    len(self.league.trainers) - self.current_trainer_index,
+                    int(self.difficulty),
+                ],
+                dtype=np.int64,
+            ),
+        }
+
+    def _league_info(self, info, **updates):
+        return {
+            **info,
+            "generation": self.league.generation,
+            "difficulty": int(self.difficulty),
+            "trainer_index": self.current_trainer_index,
+            "trainer": self.current_trainer.name,
+            "trainers_defeated": self.current_trainer_index,
+            **updates,
+        }
+
+    def _prepare_battle(self, team: str):
+        battle = self._battle_env.env
+        battle.agent1.update_team(team)
+        battle.agent2.update_team(
+            LeagueTeam(
+                self.league,
+                self.current_trainer,
+                self._battle_env.format_config.showdown_path,
+            )
+        )
+
+    def reset(self, *, seed=None, options=None):
+        super().reset(seed=seed)
+        self.current_trainer_index = 0
+        self._base_team = _resolve_team(self.team)
+        self._prepare_battle(self._base_team)
+        observation, info = self._battle_env.reset(seed=seed, options=options)
+        self._episode_active = True
+        return self._league_observation(observation), self._league_info(info)
+
+    def step(self, action):
+        if not self._episode_active:
+            raise RuntimeError("reset() must be called before step().")
+
+        observation, reward, terminated, truncated, info = self._battle_env.step(action)
+        if truncated:
+            self._episode_active = False
+            return (
+                self._league_observation(observation),
+                reward,
+                False,
+                True,
+                self._league_info(info, league_complete=False),
+            )
+        if not terminated:
+            return (
+                self._league_observation(observation),
+                reward,
+                False,
+                False,
+                self._league_info(info),
+            )
+
+        battle = self._battle_env.env.battle1
+        won = bool(battle and battle.won)
+        if not won or self.current_trainer_index == len(self.league.trainers) - 1:
+            self._episode_active = False
+            return (
+                self._league_observation(observation),
+                reward,
+                True,
+                False,
+                self._league_info(
+                    info,
+                    battle_won=won,
+                    league_complete=won,
+                    trainers_defeated=self.current_trainer_index + int(won),
+                ),
+            )
+
+        if self.difficulty is LeagueDifficulty.HARD:
+            next_team = _apply_team_state(self._base_team, _snapshot_team(battle))
+        else:
+            next_team = self._base_team
+
+        defeated_trainer = self.current_trainer.name
+        self.current_trainer_index += 1
+        self._prepare_battle(next_team)
+        observation, next_info = self._battle_env.reset()
+        return (
+            self._league_observation(observation),
+            reward,
+            False,
+            False,
+            self._league_info(
+                {**info, **next_info},
+                battle_won=True,
+                defeated_trainer=defeated_trainer,
+                league_complete=False,
+            ),
+        )
+
+    def render(self):
+        return self._battle_env.render()
+
+    def close(self):
+        self._episode_active = False
+        self._battle_env.close()

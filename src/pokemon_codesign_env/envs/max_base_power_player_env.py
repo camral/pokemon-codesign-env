@@ -1,7 +1,6 @@
 from poke_env.player import MaxBasePowerPlayer
 
-from examples.envs.base import BaselineOpponentEnv
-from pokemon_codesign_env.configs import ObservationConfig
+from pokemon_codesign_env.envs.base import BaselineOpponentEnv
 
 
 class MaxBasePowerPlayerEnv(BaselineOpponentEnv):
@@ -10,4 +9,3 @@ class MaxBasePowerPlayerEnv(BaselineOpponentEnv):
     BATTLE_FORMAT = "gen6ou"
     OPPONENT_TEAM_FORMAT = "gen6battlefactory"
     OPPONENT_CLASS = MaxBasePowerPlayer
-    OBSERVATION_CONFIG = ObservationConfig(max_effects=8, max_fields=6, max_side_conditions=10)

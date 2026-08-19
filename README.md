@@ -43,6 +43,10 @@ python examples/train_sb3_ngopt.py \
   --verbose
 ```
 
+Add `--launch-server` to start the bundled local Showdown server automatically.
+The script reuses an existing server on port 8000 when present; otherwise it
+starts one, waits until it is ready, and stops only that server when it exits.
+
 `--verbose` prints each candidate, SB3's PPO rollout metrics, and evaluation
 progress. Omit it for one summary line per candidate.
 

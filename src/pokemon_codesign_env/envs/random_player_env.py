@@ -1,7 +1,6 @@
 from poke_env.player import RandomPlayer
 
-from examples.envs.base import BaselineOpponentEnv
-from pokemon_codesign_env.configs import ObservationConfig
+from pokemon_codesign_env.envs.base import BaselineOpponentEnv
 
 
 class RandomPlayerEnv(BaselineOpponentEnv):
@@ -10,4 +9,3 @@ class RandomPlayerEnv(BaselineOpponentEnv):
     BATTLE_FORMAT = "gen4customgame"
     OPPONENT_TEAM_FORMAT = "gen4randombattle"
     OPPONENT_CLASS = RandomPlayer
-    OBSERVATION_CONFIG = ObservationConfig()

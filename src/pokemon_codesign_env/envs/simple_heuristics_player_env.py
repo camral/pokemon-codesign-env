@@ -1,7 +1,6 @@
 from poke_env.player import SimpleHeuristicsPlayer
 
-from examples.envs.base import BaselineOpponentEnv
-from pokemon_codesign_env.configs import ObservationConfig
+from pokemon_codesign_env.envs.base import BaselineOpponentEnv
 
 
 class SimpleHeuristicsPlayerEnv(BaselineOpponentEnv):
@@ -10,4 +9,3 @@ class SimpleHeuristicsPlayerEnv(BaselineOpponentEnv):
     BATTLE_FORMAT = "gen9monotype"
     OPPONENT_TEAM_FORMAT = "gen9monotyperandombattle"
     OPPONENT_CLASS = SimpleHeuristicsPlayer
-    OBSERVATION_CONFIG = ObservationConfig()

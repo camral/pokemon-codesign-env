@@ -146,10 +146,12 @@ class LeagueTeam(Teambuilder):
         league: PokemonLeague,
         trainer: LeagueTrainer,
         showdown_path: Path | None = None,
+        battle_format: str | None = None,
     ):
         super().__init__()
         self.league = league
         self.trainer = trainer
+        self.battle_format = battle_format or league.battle_format
         self.showdown_path = (
             showdown_path or Path(__file__).resolve().parents[3] / "pokemon-showdown"
         )
@@ -174,7 +176,7 @@ class LeagueTeam(Teambuilder):
                 for pokemon in self.trainer.team
             ]
             self._packed_team = self.join_team(team)
-            validate_team(self.league.battle_format, self._packed_team, self.showdown_path)
+            validate_team(self.battle_format, self._packed_team, self.showdown_path)
         return self._packed_team
 
 
@@ -191,14 +193,21 @@ class PokemonLeagueBattleEnv(BaselineOpponentEnv):
         generation: int,
         opponent: str,
         showdown_path: Path | None = None,
+        battle_format: str | None = None,
         **env_kwargs,
     ):
         self.league = get_pokemon_league(generation)
         self.league_trainer = self.league.get_trainer(opponent)
-        opponent_team = LeagueTeam(self.league, self.league_trainer, showdown_path)
+        battle_format = battle_format or self.league.battle_format
+        opponent_team = LeagueTeam(
+            self.league,
+            self.league_trainer,
+            showdown_path,
+            battle_format,
+        )
         super().__init__(
             team=team,
-            battle_format=self.league.battle_format,
+            battle_format=battle_format,
             showdown_path=showdown_path,
             opponent_team=opponent_team,
             **env_kwargs,
@@ -270,35 +279,48 @@ def _apply_team_state(team: str, states: tuple[LeaguePokemonState, ...]) -> str:
 
 
 class PokemonLeagueEnv(Env):
-    """Face every trainer in a generation's Pokemon League as one episode."""
+    """Face every trainer in a fixed or randomly sampled League as one episode."""
 
     metadata = {"render_modes": ["human"]}
+    RANDOM_BATTLE_FORMAT = "gen9pokemonleague"
 
     def __init__(
         self,
         team,
-        generation: int,
+        generation: int | None = None,
         difficulty: int = 0,
+        random_league: bool = False,
         showdown_path: Path | None = None,
         **env_kwargs,
     ):
         if team is None:
             raise ValueError("team must contain the co-design agent's designed team")
+        if random_league and generation is not None:
+            raise ValueError("generation must be omitted when random_league is enabled")
+        if not random_league and generation is None:
+            raise ValueError("generation is required when random_league is disabled")
         try:
             self.difficulty = LeagueDifficulty(difficulty)
         except ValueError:
             raise ValueError(f"difficulty must be 0 or 1, got {difficulty}") from None
 
         self.team = team
-        self.league = get_pokemon_league(generation)
+        self.random_league = random_league
+        initial_generation = 9 if random_league else generation
+        self.league = get_pokemon_league(initial_generation)
+        self.battle_format = (
+            self.RANDOM_BATTLE_FORMAT if random_league else self.league.battle_format
+        )
         self.current_trainer_index = 0
         self._base_team = None
+        self._current_team = None
         self._episode_active = False
         self._battle_env = PokemonLeagueBattleEnv(
             team=team,
-            generation=generation,
+            generation=initial_generation,
             opponent=self.league.trainers[0].name,
             showdown_path=showdown_path,
+            battle_format=self.battle_format,
             **env_kwargs,
         )
         self.action_space = self._battle_env.action_space
@@ -308,6 +330,7 @@ class PokemonLeagueEnv(Env):
                 "league": spaces.MultiDiscrete(
                     [len(self.league.trainers), len(self.league.trainers) + 1, 2]
                 ),
+                "league_generation": spaces.Discrete(10),
             }
         )
 
@@ -326,12 +349,14 @@ class PokemonLeagueEnv(Env):
                 ],
                 dtype=np.int64,
             ),
+            "league_generation": np.int64(self.league.generation),
         }
 
     def _league_info(self, info, **updates):
         return {
             **info,
             "generation": self.league.generation,
+            "random_league": self.random_league,
             "difficulty": int(self.difficulty),
             "trainer_index": self.current_trainer_index,
             "trainer": self.current_trainer.name,
@@ -347,14 +372,19 @@ class PokemonLeagueEnv(Env):
                 self.league,
                 self.current_trainer,
                 self._battle_env.format_config.showdown_path,
+                self.battle_format,
             )
         )
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
+        if self.random_league:
+            generation = int(self.np_random.integers(1, 10))
+            self.league = get_pokemon_league(generation)
         self.current_trainer_index = 0
         self._base_team = _resolve_team(self.team)
-        self._prepare_battle(self._base_team)
+        self._current_team = self._base_team
+        self._prepare_battle(self._current_team)
         observation, info = self._battle_env.reset(seed=seed, options=options)
         self._episode_active = True
         return self._league_observation(observation), self._league_info(info)
@@ -400,9 +430,10 @@ class PokemonLeagueEnv(Env):
             )
 
         if self.difficulty is LeagueDifficulty.HARD:
-            next_team = _apply_team_state(self._base_team, _snapshot_team(battle))
+            next_team = _apply_team_state(self._current_team, _snapshot_team(battle))
         else:
             next_team = self._base_team
+        self._current_team = next_team
 
         defeated_trainer = self.current_trainer.name
         self.current_trainer_index += 1

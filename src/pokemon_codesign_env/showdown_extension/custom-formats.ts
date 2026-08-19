@@ -1,6 +1,8 @@
 import { toID } from '../sim/dex';
 import type { Battle } from '../sim/battle';
 import type { Pokemon } from '../sim/pokemon';
+import type { PokemonSet } from '../sim/teams';
+import type { TeamValidator } from '../sim/team-validator';
 
 const STATE_PREFIX = 'pcg1';
 const STATUS_CODES: { [code: string]: string } = {
@@ -68,6 +70,13 @@ function restoreLeagueState(this: Battle) {
 	}
 }
 
+function validateLeagueSet(this: TeamValidator, set: PokemonSet) {
+	const species = this.dex.species.get(set.species || set.name);
+	if (species.gen > this.dex.gen) {
+		return [`${species.name} was introduced after Generation ${this.dex.gen}.`];
+	}
+}
+
 const leagueFormats = Array.from({ length: 9 }, (_, index) => {
 	const generation = index + 1;
 	return {
@@ -79,6 +88,7 @@ const leagueFormats = Array.from({ length: 9 }, (_, index) => {
 		ruleset: generation >= 5 ?
 			[`[Gen ${generation}] Custom Game`, '!Team Preview'] : [`[Gen ${generation}] Custom Game`],
 		onBattleStart: restoreLeagueState,
+		onValidateSet: validateLeagueSet,
 	};
 });
 

@@ -64,7 +64,7 @@ env = MaxBasePowerPlayerEnv(team=learner_team, battle_format="gen7ou", opponent_
 
 ## Pokemon League environments
 
-`PokemonLeagueEnv` provides one configurable League task for every generation. One episode contains all four League opponents followed by the Champion, each controlled by `SimpleHeuristicsPlayer`. Winning a battle advances directly to the next trainer; losing or defeating the Champion ends the episode.
+`PokemonLeagueEnv` provides one configurable League task for every generation. One episode contains all four League opponents followed by the Champion, each controlled by `SimpleHeuristicsPlayer`. Winning a battle advances directly to the next trainer; losing or defeating the Champion ends the episode. Each League format bans future-generation Pokemon, so `TeamDesigner.get_parameter_space("species")` automatically contains only Pokemon introduced in that generation or earlier. The same restriction applies to manually submitted teams during Showdown validation.
 
 Install the packaged formats once before starting Showdown:
 
@@ -81,11 +81,19 @@ from pokemon_codesign_env.team_designer import TeamDesigner
 
 league = get_pokemon_league(4)
 format_config = FormatConfig.from_showdown(league.battle_format)
-learner_team = TeamDesigner(TeamSearchConfig(format=format_config))
+learner_team = TeamDesigner(TeamSearchConfig(format=format_config, team_size=6))
 env = PokemonLeagueEnv(team=learner_team, generation=4, difficulty=0)
 ```
 
-`difficulty=0` heals the designed team before every trainer. `difficulty=1` carries current HP, fainted Pokemon, non-volatile status, move PP, and lost held items into the next battle. The state is encoded in the standard packed-team Poké Ball metadata and restored by the custom format; this metadata field is therefore reserved for hard League tasks. Temporary battle effects such as stat changes, weather, volatile status, Mega Evolution, Dynamax, and Terastallization reset normally. The observation contains an additional `league` `MultiDiscrete` value with the current trainer index, number of trainers remaining, and difficulty.
+Set `random_league=True` and omit `generation` to sample one League at the start of every episode. The selected League remains fixed for all five battles. Random-League episodes use the Generation 9 League format so every Pokemon is available and the Gymnasium spaces remain identical across episodes:
+
+```python
+format_config = FormatConfig.from_showdown(PokemonLeagueEnv.RANDOM_BATTLE_FORMAT)
+learner_team = TeamDesigner(TeamSearchConfig(format=format_config, team_size=6))
+env = PokemonLeagueEnv(team=learner_team, random_league=True, difficulty=0)
+```
+
+`difficulty=0` heals the designed team before every trainer. `difficulty=1` carries current HP, fainted Pokemon, non-volatile status, move PP, and lost held items into the next battle. The state is encoded in the standard packed-team Poké Ball metadata and restored by the custom format; this metadata field is therefore reserved for hard League tasks. Temporary battle effects such as stat changes, weather, volatile status, Mega Evolution, Dynamax, and Terastallization reset normally. The observation contains a `league` `MultiDiscrete` value with the current trainer index, number of trainers remaining, and difficulty, plus `league_generation`, which identifies the selected League.
 
 `PokemonLeagueBattleEnv` remains available for experiments that need an isolated battle against one named trainer:
 

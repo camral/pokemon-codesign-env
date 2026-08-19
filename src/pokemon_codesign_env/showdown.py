@@ -77,9 +77,11 @@ def get_parameter_values(
         const validator = TeamValidator.get(format.id);
         const generations = filters.generations;
         const types = filters.types.map(type => type.toLowerCase());
+        const restrictToFormatGeneration = format.id.endsWith('pokemonleague');
         const isEligibleSpecies = species => (
             species.exists &&
             !validator.ruleTable.isBannedSpecies(species) &&
+            (!restrictToFormatGeneration || species.gen <= dex.gen) &&
             (!generations.length || generations.includes(species.gen)) &&
             (!types.length || species.types.some(type => types.includes(type.toLowerCase())))
         );

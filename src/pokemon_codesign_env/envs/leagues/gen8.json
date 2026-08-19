@@ -1,0 +1,836 @@
+{
+  "generation": 8,
+  "region": "Galar",
+  "game": "Sword",
+  "trainers": [
+    {
+      "name": "Bede",
+      "team": [
+        {
+          "species": "Mawile",
+          "level": 51,
+          "moves": [
+            "Play Rough",
+            "Iron Head",
+            "Crunch"
+          ],
+          "ability": "Intimidate",
+          "item": null,
+          "nature": "Calm",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            15,
+            15,
+            15,
+            15,
+            15,
+            15
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Gardevoir",
+          "level": 51,
+          "moves": [
+            "Dazzling Gleam",
+            "Psychic",
+            "Calm Mind",
+            "Wish"
+          ],
+          "ability": "Synchronize",
+          "item": null,
+          "nature": "Adamant",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            15,
+            15,
+            15,
+            15,
+            15,
+            15
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Rapidash-Galar",
+          "level": 52,
+          "moves": [
+            "Psycho Cut",
+            "Take Down",
+            "Dazzling Gleam",
+            "Quick Attack"
+          ],
+          "ability": "Pastel Veil",
+          "item": null,
+          "nature": "Calm",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            15,
+            15,
+            15,
+            15,
+            15,
+            15
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Hatterene",
+          "level": 53,
+          "moves": [
+            "Psychic",
+            "Dazzling Gleam",
+            "Calm Mind",
+            "Mystical Fire"
+          ],
+          "ability": "Anticipation",
+          "item": null,
+          "nature": "Jolly",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            15,
+            15,
+            15,
+            15,
+            15,
+            15
+          ],
+          "gender": "F",
+          "gmax": true,
+          "tera_type": null
+        }
+      ],
+      "role": "champion_cup"
+    },
+    {
+      "name": "Nessa",
+      "team": [
+        {
+          "species": "Golisopod",
+          "level": 51,
+          "moves": [
+            "First Impression",
+            "Liquidation",
+            "Swords Dance",
+            "Shadow Claw"
+          ],
+          "ability": "Emergency Exit",
+          "item": null,
+          "nature": "Careful",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            15,
+            15,
+            15,
+            15,
+            15,
+            15
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Pelipper",
+          "level": 51,
+          "moves": [
+            "Roost",
+            "Air Slash",
+            "Water Pulse",
+            "Tailwind"
+          ],
+          "ability": "Drizzle",
+          "item": null,
+          "nature": "Lonely",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            15,
+            15,
+            15,
+            15,
+            15,
+            15
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Barraskewda",
+          "level": 52,
+          "moves": [
+            "Liquidation",
+            "Throat Chop",
+            "Ice Fang",
+            "Drill Run"
+          ],
+          "ability": "Swift Swim",
+          "item": null,
+          "nature": "Brave",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            15,
+            15,
+            15,
+            15,
+            15,
+            15
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Seaking",
+          "level": 52,
+          "moves": [
+            "Smart Strike",
+            "Megahorn",
+            "Aqua Ring",
+            "Waterfall"
+          ],
+          "ability": "Swift Swim",
+          "item": null,
+          "nature": "Adamant",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            15,
+            15,
+            15,
+            15,
+            15,
+            15
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Drednaw",
+          "level": 53,
+          "moves": [
+            "Liquidation",
+            "Jaw Lock",
+            "Rock Tomb",
+            "Crunch"
+          ],
+          "ability": "Shell Armor",
+          "item": null,
+          "nature": "Calm",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            20,
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "gender": "F",
+          "gmax": true,
+          "tera_type": null
+        }
+      ],
+      "role": "champion_cup"
+    },
+    {
+      "name": "Bea",
+      "team": [
+        {
+          "species": "Hawlucha",
+          "level": 52,
+          "moves": [
+            "Flying Press",
+            "High Jump Kick",
+            "Bounce"
+          ],
+          "ability": "Limber",
+          "item": null,
+          "nature": "Calm",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            15,
+            15,
+            15,
+            15,
+            15,
+            15
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Grapploct",
+          "level": 52,
+          "moves": [
+            "Octolock",
+            "Submission",
+            "Bind",
+            "Mega Punch"
+          ],
+          "ability": "Limber",
+          "item": null,
+          "nature": "Lonely",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            15,
+            15,
+            15,
+            15,
+            15,
+            15
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Sirfetch'd",
+          "level": 53,
+          "moves": [
+            "Leaf Blade",
+            "Slam",
+            "Brick Break",
+            "Brutal Swing"
+          ],
+          "ability": "Steadfast",
+          "item": null,
+          "nature": "Gentle",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            15,
+            15,
+            15,
+            15,
+            15,
+            15
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Falinks",
+          "level": 53,
+          "moves": [
+            "No Retreat",
+            "Bulk Up",
+            "Close Combat",
+            "Rock Tomb"
+          ],
+          "ability": "Battle Armor",
+          "item": null,
+          "nature": "Lonely",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            15,
+            15,
+            15,
+            15,
+            15,
+            15
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Machamp",
+          "level": 54,
+          "moves": [
+            "Cross Chop",
+            "Revenge",
+            "Fire Punch",
+            "Strength"
+          ],
+          "ability": "Guts",
+          "item": null,
+          "nature": "Sassy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            20,
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "gender": "F",
+          "gmax": true,
+          "tera_type": null
+        }
+      ],
+      "role": "champion_cup"
+    },
+    {
+      "name": "Raihan",
+      "team": [
+        {
+          "species": "Torkoal",
+          "level": 53,
+          "moves": [
+            "Lava Plume",
+            "Body Press",
+            "Solar Beam",
+            "Yawn"
+          ],
+          "ability": "Drought",
+          "item": null,
+          "nature": "Modest",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            15,
+            15,
+            15,
+            15,
+            15,
+            15
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Goodra",
+          "level": 54,
+          "moves": [
+            "Rain Dance",
+            "Surf",
+            "Thunder",
+            "Muddy Water"
+          ],
+          "ability": "Sap Sipper",
+          "item": null,
+          "nature": "Lax",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            15,
+            15,
+            15,
+            15,
+            15,
+            15
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Turtonator",
+          "level": 54,
+          "moves": [
+            "Sunny Day",
+            "Dragon Pulse",
+            "Shell Trap",
+            "Fire Blast"
+          ],
+          "ability": "Shell Armor",
+          "item": null,
+          "nature": "Lax",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            15,
+            15,
+            15,
+            15,
+            15,
+            15
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Flygon",
+          "level": 54,
+          "moves": [
+            "Sandstorm",
+            "Dragon Claw",
+            "Earthquake",
+            "Crunch"
+          ],
+          "ability": "Levitate",
+          "item": null,
+          "nature": "Careful",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            15,
+            15,
+            15,
+            15,
+            15,
+            15
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Duraludon",
+          "level": 55,
+          "moves": [
+            "Dragon Claw",
+            "Body Press",
+            "Stone Edge",
+            "Iron Head"
+          ],
+          "ability": "Light Metal",
+          "item": null,
+          "nature": "Careful",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            20,
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "gender": "M",
+          "gmax": true,
+          "tera_type": null
+        }
+      ],
+      "role": "champion_cup"
+    },
+    {
+      "name": "Leon",
+      "team": [
+        {
+          "species": "Aegislash",
+          "level": 62,
+          "moves": [
+            "King's Shield",
+            "Shadow Ball",
+            "Sacred Sword",
+            "Flash Cannon"
+          ],
+          "ability": "Stance Change",
+          "item": null,
+          "nature": "Lax",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            20,
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Dragapult",
+          "level": 62,
+          "moves": [
+            "Shadow Ball",
+            "Flamethrower",
+            "Thunderbolt",
+            "Dragon Breath"
+          ],
+          "ability": "Clear Body",
+          "item": null,
+          "nature": "Jolly",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            20,
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Haxorus",
+          "level": 63,
+          "moves": [
+            "Poison Jab",
+            "Iron Tail",
+            "Outrage",
+            "Earthquake"
+          ],
+          "ability": "Mold Breaker",
+          "item": null,
+          "nature": "Careful",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            20,
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Seismitoad",
+          "level": 64,
+          "moves": [
+            "Toxic",
+            "Drain Punch",
+            "Liquidation",
+            "Earthquake"
+          ],
+          "ability": "Water Absorb",
+          "item": null,
+          "nature": "Calm",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            20,
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Cinderace",
+          "level": 64,
+          "moves": [
+            "Pyro Ball",
+            "Feint",
+            "Acrobatics",
+            "Quick Attack"
+          ],
+          "ability": "Blaze",
+          "item": null,
+          "nature": "Careful",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            20,
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Charizard",
+          "level": 65,
+          "moves": [
+            "Fire Blast",
+            "Air Slash",
+            "Solar Beam",
+            "Ancient Power"
+          ],
+          "ability": "Blaze",
+          "item": null,
+          "nature": "Adamant",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "M",
+          "gmax": true,
+          "tera_type": null
+        }
+      ],
+      "role": "champion"
+    }
+  ],
+  "note": "Galar has no Elite Four, so Bede and the three Sword Champion Cup finalists fill the four League slots. Leon's Cinderace team is used."
+}

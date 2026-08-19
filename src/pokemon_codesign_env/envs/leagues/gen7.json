@@ -1,0 +1,866 @@
+{
+  "generation": 7,
+  "region": "Alola",
+  "game": "Ultra Sun and Ultra Moon",
+  "trainers": [
+    {
+      "name": "Molayne",
+      "team": [
+        {
+          "species": "Klefki",
+          "level": 56,
+          "moves": [
+            "Spikes",
+            "Thunder Wave",
+            "Flash Cannon",
+            "Reflect"
+          ],
+          "ability": "Prankster",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            252,
+            0,
+            252,
+            0
+          ],
+          "ivs": [
+            30,
+            25,
+            30,
+            25,
+            30,
+            25
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Bisharp",
+          "level": 56,
+          "moves": [
+            "Night Slash",
+            "Iron Head",
+            "X-Scissor",
+            "Metal Sound"
+          ],
+          "ability": "Defiant",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            252,
+            252,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            25,
+            30,
+            30,
+            25,
+            25,
+            30
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Magnezone",
+          "level": 56,
+          "moves": [
+            "Flash Cannon",
+            "Thunderbolt",
+            "Tri Attack",
+            "Screech"
+          ],
+          "ability": "Sturdy",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            252,
+            252,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            25,
+            30,
+            30,
+            25,
+            25
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Metagross",
+          "level": 56,
+          "moves": [
+            "Hammer Arm",
+            "Meteor Mash",
+            "Bullet Punch",
+            "Zen Headbutt"
+          ],
+          "ability": "Clear Body",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            252,
+            0,
+            252,
+            0
+          ],
+          "ivs": [
+            30,
+            25,
+            30,
+            25,
+            30,
+            25
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Dugtrio-Alola",
+          "level": 57,
+          "moves": [
+            "Earthquake",
+            "Iron Head",
+            "Sucker Punch",
+            "Fissure"
+          ],
+          "ability": "Tangling Hair",
+          "item": "Steelium Z",
+          "nature": "Serious",
+          "evs": [
+            0,
+            252,
+            0,
+            0,
+            0,
+            252
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "elite_four"
+    },
+    {
+      "name": "Olivia",
+      "team": [
+        {
+          "species": "Armaldo",
+          "level": 56,
+          "moves": [
+            "Crush Claw",
+            "X-Scissor",
+            "Rock Blast"
+          ],
+          "ability": "Battle Armor",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            252,
+            0,
+            0,
+            0,
+            252
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Cradily",
+          "level": 56,
+          "moves": [
+            "Rock Tomb",
+            "Energy Ball",
+            "Stealth Rock"
+          ],
+          "ability": "Suction Cups",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            252,
+            0,
+            252,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Gigalith",
+          "level": 56,
+          "moves": [
+            "Stone Edge",
+            "Bulldoze",
+            "Iron Head"
+          ],
+          "ability": "Sand Stream",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            252,
+            0,
+            252,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Probopass",
+          "level": 56,
+          "moves": [
+            "Earth Power",
+            "Power Gem",
+            "Thunder Wave",
+            "Sandstorm"
+          ],
+          "ability": "Sturdy",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            252,
+            0,
+            0,
+            0,
+            252,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Lycanroc-Midnight",
+          "level": 57,
+          "moves": [
+            "Crunch",
+            "Stone Edge",
+            "Counter",
+            "Rock Climb"
+          ],
+          "ability": "Keen Eye",
+          "item": "Rockium Z",
+          "nature": "Serious",
+          "evs": [
+            252,
+            0,
+            252,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "elite_four"
+    },
+    {
+      "name": "Acerola",
+      "team": [
+        {
+          "species": "Banette",
+          "level": 56,
+          "moves": [
+            "Shadow Claw",
+            "Feint Attack",
+            "Infestation",
+            "Screech"
+          ],
+          "ability": "Insomnia",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            252,
+            0,
+            0,
+            0,
+            252
+          ],
+          "ivs": [
+            30,
+            30,
+            25,
+            25,
+            25,
+            30
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Drifblim",
+          "level": 56,
+          "moves": [
+            "Ominous Wind",
+            "Focus Energy",
+            "Amnesia",
+            "Baton Pass"
+          ],
+          "ability": "Aftermath",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            252,
+            0,
+            252,
+            0
+          ],
+          "ivs": [
+            30,
+            25,
+            30,
+            25,
+            30,
+            25
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Dhelmise",
+          "level": 56,
+          "moves": [
+            "Slam",
+            "Shadow Ball",
+            "Energy Ball",
+            "Whirlpool"
+          ],
+          "ability": "Steelworker",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            252,
+            0,
+            252,
+            0
+          ],
+          "ivs": [
+            30,
+            25,
+            30,
+            25,
+            30,
+            25
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Froslass",
+          "level": 56,
+          "moves": [
+            "Blizzard",
+            "Shadow Ball",
+            "Confuse Ray",
+            "Ice Shard"
+          ],
+          "ability": "Snow Cloak",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            252,
+            0,
+            252
+          ],
+          "ivs": [
+            30,
+            25,
+            25,
+            30,
+            25,
+            30
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Palossand",
+          "level": 57,
+          "moves": [
+            "Shadow Ball",
+            "Earth Power",
+            "Giga Drain",
+            "Iron Defense"
+          ],
+          "ability": "Water Compaction",
+          "item": "Ghostium Z",
+          "nature": "Serious",
+          "evs": [
+            252,
+            0,
+            0,
+            252,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            25,
+            25,
+            30,
+            30,
+            25
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "elite_four"
+    },
+    {
+      "name": "Kahili",
+      "team": [
+        {
+          "species": "Braviary",
+          "level": 56,
+          "moves": [
+            "Crush Claw",
+            "Brave Bird",
+            "Air Slash",
+            "Scary Face"
+          ],
+          "ability": "Sheer Force",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            252,
+            0,
+            0,
+            0,
+            252
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Hawlucha",
+          "level": 56,
+          "moves": [
+            "Flying Press",
+            "Throat Chop",
+            "Dual Chop",
+            "Poison Jab"
+          ],
+          "ability": "Mold Breaker",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            252,
+            0,
+            0,
+            0,
+            252
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Oricorio",
+          "level": 56,
+          "moves": [
+            "Revelation Dance",
+            "Teeter Dance",
+            "Air Slash",
+            "Feather Dance"
+          ],
+          "ability": "Dancer",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            252,
+            0,
+            252
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Mandibuzz",
+          "level": 56,
+          "moves": [
+            "Bone Rush",
+            "Brave Bird",
+            "Punishment",
+            "Flatter"
+          ],
+          "ability": "Big Pecks",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            252,
+            0,
+            252,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Toucannon",
+          "level": 57,
+          "moves": [
+            "Bullet Seed",
+            "Rock Blast",
+            "Beak Blast",
+            "Screech"
+          ],
+          "ability": "Skill Link",
+          "item": "Flyinium Z",
+          "nature": "Serious",
+          "evs": [
+            0,
+            252,
+            0,
+            0,
+            0,
+            252
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "elite_four"
+    },
+    {
+      "name": "Hau",
+      "team": [
+        {
+          "species": "Raichu-Alola",
+          "level": 59,
+          "moves": [
+            "Thunderbolt",
+            "Quick Attack",
+            "Psychic",
+            "Focus Blast"
+          ],
+          "ability": "Static",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            252,
+            0,
+            252
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Flareon",
+          "level": 58,
+          "moves": [
+            "Flare Blitz",
+            "Quick Attack",
+            "Charm",
+            "Baby-Doll Eyes"
+          ],
+          "ability": "Flash Fire",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            252,
+            0,
+            0,
+            0,
+            252
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Tauros",
+          "level": 58,
+          "moves": [
+            "Zen Headbutt",
+            "Iron Head",
+            "Earthquake",
+            "Double-Edge"
+          ],
+          "ability": "Intimidate",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            252,
+            0,
+            0,
+            0,
+            252
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Noivern",
+          "level": 58,
+          "moves": [
+            "Dragon Pulse",
+            "Air Slash",
+            "Dark Pulse",
+            "Super Fang"
+          ],
+          "ability": "Infiltrator",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            252,
+            0,
+            252
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Crabominable",
+          "level": 59,
+          "moves": [
+            "Power-Up Punch",
+            "Ice Hammer",
+            "Stone Edge",
+            "Dizzy Punch"
+          ],
+          "ability": "Iron Fist",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            252,
+            0,
+            0,
+            0,
+            252
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Primarina",
+          "level": 60,
+          "moves": [
+            "Sparkling Aria",
+            "Moonblast",
+            "Hyper Voice"
+          ],
+          "ability": "Torrent",
+          "item": "Waterium Z",
+          "nature": "Serious",
+          "evs": [
+            252,
+            0,
+            0,
+            252,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "champion"
+    }
+  ],
+  "note": "Hau's Primarina team is used for the starter-dependent Champion battle."
+}

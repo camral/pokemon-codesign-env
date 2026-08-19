@@ -1,0 +1,998 @@
+{
+  "generation": 5,
+  "region": "Unova",
+  "game": "Black and White",
+  "trainers": [
+    {
+      "name": "Shauntal",
+      "team": [
+        {
+          "species": "Cofagrigus",
+          "level": 71,
+          "moves": [
+            "Shadow Ball",
+            "Psychic",
+            "Will-O-Wisp",
+            "Energy Ball"
+          ],
+          "ability": "Mummy",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Jellicent",
+          "level": 71,
+          "moves": [
+            "Shadow Ball",
+            "Psychic",
+            "Hydro Pump",
+            "Sludge Wave"
+          ],
+          "ability": "Cursed Body",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Froslass",
+          "level": 71,
+          "moves": [
+            "Shadow Ball",
+            "Psychic",
+            "Blizzard",
+            "Ice Shard"
+          ],
+          "ability": "Snow Cloak",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Drifblim",
+          "level": 71,
+          "moves": [
+            "Shadow Ball",
+            "Psychic",
+            "Acrobatics",
+            "Thunder"
+          ],
+          "ability": "Aftermath",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Golurk",
+          "level": 71,
+          "moves": [
+            "Shadow Punch",
+            "Earthquake",
+            "Hammer Arm",
+            "Curse"
+          ],
+          "ability": "Iron Fist",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Chandelure",
+          "level": 73,
+          "moves": [
+            "Shadow Ball",
+            "Psychic",
+            "Fire Blast",
+            "Payback"
+          ],
+          "ability": "Flame Body",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "elite_four"
+    },
+    {
+      "name": "Grimsley",
+      "team": [
+        {
+          "species": "Sharpedo",
+          "level": 71,
+          "moves": [
+            "Aqua Jet",
+            "Night Slash",
+            "Waterfall",
+            "Earthquake"
+          ],
+          "ability": "Rough Skin",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Liepard",
+          "level": 71,
+          "moves": [
+            "Sucker Punch",
+            "Fake Out",
+            "Aerial Ace",
+            "Attract"
+          ],
+          "ability": "Limber",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Scrafty",
+          "level": 71,
+          "moves": [
+            "Head Smash",
+            "Crunch",
+            "Brick Break",
+            "Poison Jab"
+          ],
+          "ability": "Moxie",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Drapion",
+          "level": 71,
+          "moves": [
+            "Thunder Fang",
+            "Poison Fang",
+            "Fire Fang",
+            "Crunch"
+          ],
+          "ability": "Battle Armor",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Krookodile",
+          "level": 71,
+          "moves": [
+            "Smack Down",
+            "Earthquake",
+            "Foul Play",
+            "Outrage"
+          ],
+          "ability": "Intimidate",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Bisharp",
+          "level": 73,
+          "moves": [
+            "Guillotine",
+            "Night Slash",
+            "X-Scissor",
+            "Aerial Ace"
+          ],
+          "ability": "Defiant",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "elite_four"
+    },
+    {
+      "name": "Caitlin",
+      "team": [
+        {
+          "species": "Musharna",
+          "level": 71,
+          "moves": [
+            "Psychic",
+            "Dream Eater",
+            "Hypnosis",
+            "Reflect"
+          ],
+          "ability": "Synchronize",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Sigilyph",
+          "level": 71,
+          "moves": [
+            "Air Slash",
+            "Psychic",
+            "Flash Cannon",
+            "Ice Beam"
+          ],
+          "ability": "Wonder Skin",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Bronzong",
+          "level": 71,
+          "moves": [
+            "Payback",
+            "Flash Cannon",
+            "Psychic",
+            "Charge Beam"
+          ],
+          "ability": "Levitate",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Reuniclus",
+          "level": 71,
+          "moves": [
+            "Psychic",
+            "Thunder",
+            "Energy Ball",
+            "Focus Blast"
+          ],
+          "ability": "Magic Guard",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Gothitelle",
+          "level": 71,
+          "moves": [
+            "Psychic",
+            "Payback",
+            "Flatter",
+            "Thunderbolt"
+          ],
+          "ability": "Frisk",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Metagross",
+          "level": 73,
+          "moves": [
+            "Zen Headbutt",
+            "Bullet Punch",
+            "Earthquake",
+            "Giga Impact"
+          ],
+          "ability": "Clear Body",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "elite_four"
+    },
+    {
+      "name": "Marshal",
+      "team": [
+        {
+          "species": "Breloom",
+          "level": 71,
+          "moves": [
+            "Mach Punch",
+            "Spore",
+            "Grass Knot",
+            "Sky Uppercut"
+          ],
+          "ability": "Effect Spore",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Sawk",
+          "level": 71,
+          "moves": [
+            "Close Combat",
+            "Retaliate",
+            "Stone Edge",
+            "Poison Jab"
+          ],
+          "ability": "Sturdy",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Throh",
+          "level": 71,
+          "moves": [
+            "Superpower",
+            "Retaliate",
+            "Earthquake",
+            "Grass Knot"
+          ],
+          "ability": "Guts",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Toxicroak",
+          "level": 71,
+          "moves": [
+            "Venoshock",
+            "Toxic",
+            "Low Sweep",
+            "Earthquake"
+          ],
+          "ability": "Anticipation",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Mienshao",
+          "level": 71,
+          "moves": [
+            "High Jump Kick",
+            "U-turn",
+            "Acrobatics",
+            "Fake Out"
+          ],
+          "ability": "Inner Focus",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Conkeldurr",
+          "level": 73,
+          "moves": [
+            "Hammer Arm",
+            "Earthquake",
+            "Stone Edge",
+            "Payback"
+          ],
+          "ability": "Sheer Force",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "elite_four"
+    },
+    {
+      "name": "Alder",
+      "team": [
+        {
+          "species": "Accelgor",
+          "level": 75,
+          "moves": [
+            "Focus Blast",
+            "Bug Buzz",
+            "Me First",
+            "Energy Ball"
+          ],
+          "ability": "Hydration",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Bouffalant",
+          "level": 75,
+          "moves": [
+            "Head Charge",
+            "Megahorn",
+            "Earthquake",
+            "Stone Edge"
+          ],
+          "ability": "Reckless",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Druddigon",
+          "level": 75,
+          "moves": [
+            "Outrage",
+            "Superpower",
+            "Night Slash",
+            "Payback"
+          ],
+          "ability": "Rough Skin",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Vanilluxe",
+          "level": 75,
+          "moves": [
+            "Blizzard",
+            "Flash Cannon",
+            "Light Screen",
+            "Acid Armor"
+          ],
+          "ability": "Ice Body",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Escavalier",
+          "level": 75,
+          "moves": [
+            "X-Scissor",
+            "Iron Head",
+            "Aerial Ace",
+            "Giga Impact"
+          ],
+          "ability": "Swarm",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Volcarona",
+          "level": 77,
+          "moves": [
+            "Overheat",
+            "Quiver Dance",
+            "Bug Buzz",
+            "Hyper Beam"
+          ],
+          "ability": "Flame Body",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "champion"
+    }
+  ],
+  "note": "The post-game rematch teams are used because Alder is not fought during the first League visit."
+}

@@ -1,0 +1,869 @@
+{
+  "generation": 1,
+  "region": "Kanto",
+  "game": "Red and Blue",
+  "trainers": [
+    {
+      "name": "Lorelei",
+      "team": [
+        {
+          "species": "Dewgong",
+          "level": 54,
+          "moves": [
+            "Growl",
+            "Aurora Beam",
+            "Rest",
+            "Take Down"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            16,
+            18,
+            16,
+            16,
+            16,
+            16
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Cloyster",
+          "level": 53,
+          "moves": [
+            "Supersonic",
+            "Clamp",
+            "Aurora Beam",
+            "Spike Cannon"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            16,
+            18,
+            16,
+            16,
+            16,
+            16
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Slowbro",
+          "level": 54,
+          "moves": [
+            "Growl",
+            "Water Gun",
+            "Withdraw",
+            "Amnesia"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            16,
+            18,
+            16,
+            16,
+            16,
+            16
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Jynx",
+          "level": 56,
+          "moves": [
+            "Double Slap",
+            "Ice Punch",
+            "Body Slam",
+            "Thrash"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            16,
+            18,
+            16,
+            16,
+            16,
+            16
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Lapras",
+          "level": 56,
+          "moves": [
+            "Body Slam",
+            "Confuse Ray",
+            "Blizzard",
+            "Hydro Pump"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            16,
+            18,
+            16,
+            16,
+            16,
+            16
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "elite_four"
+    },
+    {
+      "name": "Bruno",
+      "team": [
+        {
+          "species": "Onix",
+          "level": 53,
+          "moves": [
+            "Rock Throw",
+            "Rage",
+            "Slam",
+            "Harden"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            16,
+            18,
+            16,
+            16,
+            16,
+            16
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Hitmonchan",
+          "level": 55,
+          "moves": [
+            "Ice Punch",
+            "Thunder Punch",
+            "Mega Punch",
+            "Counter"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            16,
+            18,
+            16,
+            16,
+            16,
+            16
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Hitmonlee",
+          "level": 55,
+          "moves": [
+            "Jump Kick",
+            "Focus Energy",
+            "High Jump Kick",
+            "Mega Kick"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            16,
+            18,
+            16,
+            16,
+            16,
+            16
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Onix",
+          "level": 56,
+          "moves": [
+            "Rock Throw",
+            "Rage",
+            "Slam",
+            "Harden"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            16,
+            18,
+            16,
+            16,
+            16,
+            16
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Machamp",
+          "level": 58,
+          "moves": [
+            "Leer",
+            "Focus Energy",
+            "Fissure",
+            "Submission"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            16,
+            18,
+            16,
+            16,
+            16,
+            16
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "elite_four"
+    },
+    {
+      "name": "Agatha",
+      "team": [
+        {
+          "species": "Gengar",
+          "level": 56,
+          "moves": [
+            "Confuse Ray",
+            "Night Shade",
+            "Hypnosis",
+            "Dream Eater"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            16,
+            18,
+            16,
+            16,
+            16,
+            16
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Golbat",
+          "level": 56,
+          "moves": [
+            "Supersonic",
+            "Confuse Ray",
+            "Wing Attack",
+            "Haze"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            16,
+            18,
+            16,
+            16,
+            16,
+            16
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Haunter",
+          "level": 55,
+          "moves": [
+            "Confuse Ray",
+            "Night Shade",
+            "Hypnosis",
+            "Dream Eater"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            16,
+            18,
+            16,
+            16,
+            16,
+            16
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Arbok",
+          "level": 58,
+          "moves": [
+            "Bite",
+            "Glare",
+            "Screech",
+            "Acid"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            16,
+            18,
+            16,
+            16,
+            16,
+            16
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Gengar",
+          "level": 60,
+          "moves": [
+            "Confuse Ray",
+            "Night Shade",
+            "Toxic",
+            "Dream Eater"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            16,
+            18,
+            16,
+            16,
+            16,
+            16
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "elite_four"
+    },
+    {
+      "name": "Lance",
+      "team": [
+        {
+          "species": "Gyarados",
+          "level": 58,
+          "moves": [
+            "Dragon Rage",
+            "Leer",
+            "Hydro Pump",
+            "Hyper Beam"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            16,
+            18,
+            16,
+            16,
+            16,
+            16
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Dragonair",
+          "level": 56,
+          "moves": [
+            "Agility",
+            "Slam",
+            "Dragon Rage",
+            "Hyper Beam"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            16,
+            18,
+            16,
+            16,
+            16,
+            16
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Dragonair",
+          "level": 56,
+          "moves": [
+            "Agility",
+            "Slam",
+            "Dragon Rage",
+            "Hyper Beam"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            16,
+            18,
+            16,
+            16,
+            16,
+            16
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Aerodactyl",
+          "level": 60,
+          "moves": [
+            "Supersonic",
+            "Bite",
+            "Take Down",
+            "Hyper Beam"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            16,
+            18,
+            16,
+            16,
+            16,
+            16
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Dragonite",
+          "level": 62,
+          "moves": [
+            "Agility",
+            "Slam",
+            "Barrier",
+            "Hyper Beam"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            16,
+            18,
+            16,
+            16,
+            16,
+            16
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "elite_four"
+    },
+    {
+      "name": "Blue",
+      "team": [
+        {
+          "species": "Pidgeot",
+          "level": 61,
+          "moves": [
+            "Whirlwind",
+            "Wing Attack",
+            "Sky Attack",
+            "Mirror Move"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            16,
+            18,
+            16,
+            16,
+            16,
+            16
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Alakazam",
+          "level": 59,
+          "moves": [
+            "Psybeam",
+            "Recover",
+            "Psychic",
+            "Reflect"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            16,
+            18,
+            16,
+            16,
+            16,
+            16
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Rhydon",
+          "level": 61,
+          "moves": [
+            "Tail Whip",
+            "Fury Attack",
+            "Horn Drill",
+            "Leer"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            16,
+            18,
+            16,
+            16,
+            16,
+            16
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Arcanine",
+          "level": 61,
+          "moves": [
+            "Roar",
+            "Ember",
+            "Leer",
+            "Take Down"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            16,
+            18,
+            16,
+            16,
+            16,
+            16
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Exeggutor",
+          "level": 63,
+          "moves": [
+            "Barrage",
+            "Hypnosis",
+            "Stomp"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            16,
+            18,
+            16,
+            16,
+            16,
+            16
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Blastoise",
+          "level": 65,
+          "moves": [
+            "Bite",
+            "Withdraw",
+            "Blizzard",
+            "Hydro Pump"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            16,
+            18,
+            16,
+            16,
+            16,
+            16
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "champion"
+    }
+  ],
+  "note": "Blue's Blastoise team is used for the starter-dependent Champion battle."
+}

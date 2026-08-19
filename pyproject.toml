@@ -56,6 +56,9 @@ Issues = "https://github.com/camral/pokemon-codesign-env/issues"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"pokemon_codesign_env.envs" = ["leagues/*.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"

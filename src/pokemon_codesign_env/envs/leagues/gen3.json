@@ -1,0 +1,870 @@
+{
+  "generation": 3,
+  "region": "Hoenn",
+  "game": "Emerald",
+  "trainers": [
+    {
+      "name": "Sidney",
+      "team": [
+        {
+          "species": "Mightyena",
+          "level": 46,
+          "moves": [
+            "Roar",
+            "Double-Edge",
+            "Sand Attack",
+            "Crunch"
+          ],
+          "ability": "Intimidate",
+          "item": null,
+          "nature": "Rash",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Shiftry",
+          "level": 48,
+          "moves": [
+            "Torment",
+            "Double Team",
+            "Swagger",
+            "Extrasensory"
+          ],
+          "ability": "Chlorophyll",
+          "item": null,
+          "nature": "Jolly",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Cacturne",
+          "level": 46,
+          "moves": [
+            "Leech Seed",
+            "Feint Attack",
+            "Needle Arm",
+            "Cotton Spore"
+          ],
+          "ability": "Sand Veil",
+          "item": null,
+          "nature": "Adamant",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Crawdaunt",
+          "level": 48,
+          "moves": [
+            "Surf",
+            "Swords Dance",
+            "Strength",
+            "Facade"
+          ],
+          "ability": "Hyper Cutter",
+          "item": null,
+          "nature": "Naughty",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Absol",
+          "level": 49,
+          "moves": [
+            "Aerial Ace",
+            "Rock Slide",
+            "Swords Dance",
+            "Slash"
+          ],
+          "ability": "Pressure",
+          "item": "Sitrus Berry",
+          "nature": "Bold",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            31,
+            31,
+            31,
+            31,
+            31,
+            31
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "elite_four"
+    },
+    {
+      "name": "Phoebe",
+      "team": [
+        {
+          "species": "Dusclops",
+          "level": 48,
+          "moves": [
+            "Shadow Punch",
+            "Confuse Ray",
+            "Curse",
+            "Protect"
+          ],
+          "ability": "Pressure",
+          "item": null,
+          "nature": "Naughty",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Banette",
+          "level": 49,
+          "moves": [
+            "Shadow Ball",
+            "Grudge",
+            "Will-O-Wisp",
+            "Feint Attack"
+          ],
+          "ability": "Insomnia",
+          "item": null,
+          "nature": "Calm",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Sableye",
+          "level": 50,
+          "moves": [
+            "Shadow Ball",
+            "Double Team",
+            "Night Shade",
+            "Feint Attack"
+          ],
+          "ability": "Keen Eye",
+          "item": null,
+          "nature": "Careful",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Banette",
+          "level": 49,
+          "moves": [
+            "Shadow Ball",
+            "Psychic",
+            "Thunderbolt",
+            "Facade"
+          ],
+          "ability": "Insomnia",
+          "item": null,
+          "nature": "Naive",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Dusclops",
+          "level": 51,
+          "moves": [
+            "Shadow Ball",
+            "Ice Beam",
+            "Rock Slide",
+            "Earthquake"
+          ],
+          "ability": "Pressure",
+          "item": "Sitrus Berry",
+          "nature": "Careful",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            31,
+            31,
+            31,
+            31,
+            31,
+            31
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "elite_four"
+    },
+    {
+      "name": "Glacia",
+      "team": [
+        {
+          "species": "Sealeo",
+          "level": 50,
+          "moves": [
+            "Encore",
+            "Body Slam",
+            "Hail",
+            "Ice Ball"
+          ],
+          "ability": "Thick Fat",
+          "item": null,
+          "nature": "Brave",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Glalie",
+          "level": 50,
+          "moves": [
+            "Light Screen",
+            "Crunch",
+            "Icy Wind",
+            "Ice Beam"
+          ],
+          "ability": "Inner Focus",
+          "item": null,
+          "nature": "Bashful",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Sealeo",
+          "level": 52,
+          "moves": [
+            "Attract",
+            "Double-Edge",
+            "Hail",
+            "Blizzard"
+          ],
+          "ability": "Thick Fat",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Glalie",
+          "level": 52,
+          "moves": [
+            "Shadow Ball",
+            "Explosion",
+            "Hail",
+            "Ice Beam"
+          ],
+          "ability": "Inner Focus",
+          "item": null,
+          "nature": "Mild",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Walrein",
+          "level": 53,
+          "moves": [
+            "Surf",
+            "Body Slam",
+            "Ice Beam",
+            "Sheer Cold"
+          ],
+          "ability": "Thick Fat",
+          "item": "Sitrus Berry",
+          "nature": "Naive",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            31,
+            31,
+            31,
+            31,
+            31,
+            31
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "elite_four"
+    },
+    {
+      "name": "Drake",
+      "team": [
+        {
+          "species": "Shelgon",
+          "level": 52,
+          "moves": [
+            "Rock Tomb",
+            "Dragon Claw",
+            "Protect",
+            "Double-Edge"
+          ],
+          "ability": "Rock Head",
+          "item": null,
+          "nature": "Quiet",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Altaria",
+          "level": 54,
+          "moves": [
+            "Double-Edge",
+            "Dragon Breath",
+            "Dragon Dance",
+            "Aerial Ace"
+          ],
+          "ability": "Natural Cure",
+          "item": null,
+          "nature": "Modest",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Kingdra",
+          "level": 53,
+          "moves": [
+            "Smokescreen",
+            "Dragon Dance",
+            "Surf",
+            "Body Slam"
+          ],
+          "ability": "Swift Swim",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Flygon",
+          "level": 53,
+          "moves": [
+            "Flamethrower",
+            "Crunch",
+            "Dragon Breath",
+            "Earthquake"
+          ],
+          "ability": "Levitate",
+          "item": null,
+          "nature": "Lax",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Salamence",
+          "level": 55,
+          "moves": [
+            "Flamethrower",
+            "Dragon Claw",
+            "Rock Slide",
+            "Crunch"
+          ],
+          "ability": "Intimidate",
+          "item": "Sitrus Berry",
+          "nature": "Bold",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            31,
+            31,
+            31,
+            31,
+            31,
+            31
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "elite_four"
+    },
+    {
+      "name": "Wallace",
+      "team": [
+        {
+          "species": "Wailord",
+          "level": 57,
+          "moves": [
+            "Rain Dance",
+            "Water Spout",
+            "Double-Edge",
+            "Blizzard"
+          ],
+          "ability": "Water Veil",
+          "item": null,
+          "nature": "Rash",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            31,
+            31,
+            31,
+            31,
+            31,
+            31
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Tentacruel",
+          "level": 55,
+          "moves": [
+            "Toxic",
+            "Hydro Pump",
+            "Sludge Bomb",
+            "Ice Beam"
+          ],
+          "ability": "Clear Body",
+          "item": null,
+          "nature": "Sassy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            31,
+            31,
+            31,
+            31,
+            31,
+            31
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Ludicolo",
+          "level": 56,
+          "moves": [
+            "Giga Drain",
+            "Surf",
+            "Leech Seed",
+            "Double Team"
+          ],
+          "ability": "Swift Swim",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            31,
+            31,
+            31,
+            31,
+            31,
+            31
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Whiscash",
+          "level": 56,
+          "moves": [
+            "Earthquake",
+            "Surf",
+            "Amnesia",
+            "Hyper Beam"
+          ],
+          "ability": "Oblivious",
+          "item": null,
+          "nature": "Sassy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            31,
+            31,
+            31,
+            31,
+            31,
+            31
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Gyarados",
+          "level": 56,
+          "moves": [
+            "Dragon Dance",
+            "Earthquake",
+            "Hyper Beam",
+            "Surf"
+          ],
+          "ability": "Intimidate",
+          "item": null,
+          "nature": "Rash",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            31,
+            31,
+            31,
+            31,
+            31,
+            31
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Milotic",
+          "level": 58,
+          "moves": [
+            "Recover",
+            "Surf",
+            "Ice Beam",
+            "Toxic"
+          ],
+          "ability": "Marvel Scale",
+          "item": "Sitrus Berry",
+          "nature": "Gentle",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            31,
+            31,
+            31,
+            31,
+            31,
+            31
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "champion"
+    }
+  ],
+  "note": null
+}

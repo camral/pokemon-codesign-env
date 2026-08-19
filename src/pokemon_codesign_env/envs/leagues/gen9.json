@@ -1,0 +1,866 @@
+{
+  "generation": 9,
+  "region": "Paldea",
+  "game": "Scarlet and Violet",
+  "trainers": [
+    {
+      "name": "Rika",
+      "team": [
+        {
+          "species": "Whiscash",
+          "level": 57,
+          "moves": [
+            "Muddy Water",
+            "Earth Power",
+            "Blizzard",
+            "Future Sight"
+          ],
+          "ability": "Oblivious",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            20,
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Camerupt",
+          "level": 57,
+          "moves": [
+            "Earth Power",
+            "Fire Blast",
+            "Flash Cannon",
+            "Yawn"
+          ],
+          "ability": "Magma Armor",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            20,
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Donphan",
+          "level": 57,
+          "moves": [
+            "Earthquake",
+            "Stone Edge",
+            "Iron Head",
+            "Poison Jab"
+          ],
+          "ability": "Sturdy",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            20,
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Dugtrio",
+          "level": 57,
+          "moves": [
+            "Earthquake",
+            "Rock Slide",
+            "Sucker Punch",
+            "Sandstorm"
+          ],
+          "ability": "Sand Veil",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            20,
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Clodsire",
+          "level": 58,
+          "moves": [
+            "Earthquake",
+            "Liquidation",
+            "Toxic",
+            "Protect"
+          ],
+          "ability": "Water Absorb",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            252,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            25,
+            25,
+            25,
+            25,
+            25,
+            25
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": "Ground"
+        }
+      ],
+      "role": "elite_four"
+    },
+    {
+      "name": "Poppy",
+      "team": [
+        {
+          "species": "Copperajah",
+          "level": 58,
+          "moves": [
+            "Play Rough",
+            "Heavy Slam",
+            "Stealth Rock"
+          ],
+          "ability": "Sheer Force",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            20,
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Magnezone",
+          "level": 58,
+          "moves": [
+            "Discharge",
+            "Flash Cannon",
+            "Light Screen",
+            "Tri Attack"
+          ],
+          "ability": "Sturdy",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            20,
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Bronzong",
+          "level": 58,
+          "moves": [
+            "Iron Head",
+            "Zen Headbutt",
+            "Rock Blast",
+            "Earthquake"
+          ],
+          "ability": "Levitate",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            20,
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Corviknight",
+          "level": 58,
+          "moves": [
+            "Brave Bird",
+            "Iron Head",
+            "Body Press",
+            "Iron Defense"
+          ],
+          "ability": "Pressure",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            20,
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Tinkaton",
+          "level": 59,
+          "moves": [
+            "Play Rough",
+            "Brick Break",
+            "Stone Edge"
+          ],
+          "ability": "Mold Breaker",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            252,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            25,
+            25,
+            25,
+            25,
+            25,
+            25
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": "Steel"
+        }
+      ],
+      "role": "elite_four"
+    },
+    {
+      "name": "Larry",
+      "team": [
+        {
+          "species": "Tropius",
+          "level": 59,
+          "moves": [
+            "Air Slash",
+            "Solar Beam",
+            "Dragon Pulse",
+            "Sunny Day"
+          ],
+          "ability": "Chlorophyll",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            20,
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Oricorio-Pom-Pom",
+          "level": 59,
+          "moves": [
+            "Revelation Dance",
+            "Air Slash",
+            "Teeter Dance",
+            "Icy Wind"
+          ],
+          "ability": "Dancer",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            20,
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Altaria",
+          "level": 59,
+          "moves": [
+            "Moonblast",
+            "Flamethrower",
+            "Ice Beam",
+            "Dragon Pulse"
+          ],
+          "ability": "Natural Cure",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            20,
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Staraptor",
+          "level": 59,
+          "moves": [
+            "Facade",
+            "Brave Bird",
+            "Close Combat",
+            "Thief"
+          ],
+          "ability": "Intimidate",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            20,
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Flamigo",
+          "level": 60,
+          "moves": [
+            "Brave Bird",
+            "Close Combat",
+            "Throat Chop",
+            "Liquidation"
+          ],
+          "ability": "Scrappy",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            252,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            25,
+            25,
+            25,
+            25,
+            25,
+            25
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": "Flying"
+        }
+      ],
+      "role": "elite_four"
+    },
+    {
+      "name": "Hassel",
+      "team": [
+        {
+          "species": "Noivern",
+          "level": 60,
+          "moves": [
+            "Air Slash",
+            "Dragon Pulse",
+            "Super Fang",
+            "Hyper Voice"
+          ],
+          "ability": "Infiltrator",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            20,
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Haxorus",
+          "level": 60,
+          "moves": [
+            "Dragon Claw",
+            "Crunch",
+            "Iron Head",
+            "Rock Tomb"
+          ],
+          "ability": "Mold Breaker",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            20,
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Dragalge",
+          "level": 60,
+          "moves": [
+            "Sludge Bomb",
+            "Dragon Pulse",
+            "Hydro Pump"
+          ],
+          "ability": "Poison Point",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            20,
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Flapple",
+          "level": 60,
+          "moves": [
+            "Dragon Rush",
+            "Seed Bomb",
+            "Aerial Ace",
+            "Leech Seed"
+          ],
+          "ability": "Ripen",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            20,
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Baxcalibur",
+          "level": 61,
+          "moves": [
+            "Icicle Crash",
+            "Brick Break",
+            "Glaive Rush"
+          ],
+          "ability": "Thermal Exchange",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            252,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            25,
+            25,
+            25,
+            25,
+            25,
+            25
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": "Dragon"
+        }
+      ],
+      "role": "elite_four"
+    },
+    {
+      "name": "Geeta",
+      "team": [
+        {
+          "species": "Espathra",
+          "level": 61,
+          "moves": [
+            "Lumina Crash",
+            "Dazzling Gleam",
+            "Quick Attack",
+            "Reflect"
+          ],
+          "ability": "Opportunist",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            25,
+            25,
+            25,
+            25,
+            25,
+            25
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Gogoat",
+          "level": 61,
+          "moves": [
+            "Horn Leech",
+            "Zen Headbutt",
+            "Play Rough",
+            "Bulk Up"
+          ],
+          "ability": "Sap Sipper",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            25,
+            25,
+            25,
+            25,
+            25,
+            25
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Veluza",
+          "level": 61,
+          "moves": [
+            "Aqua Jet",
+            "Liquidation",
+            "Psycho Cut",
+            "Ice Fang"
+          ],
+          "ability": "Mold Breaker",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            25,
+            25,
+            25,
+            25,
+            25,
+            25
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Avalugg",
+          "level": 61,
+          "moves": [
+            "Avalanche",
+            "Crunch",
+            "Earthquake",
+            "Body Press"
+          ],
+          "ability": "Own Tempo",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            25,
+            25,
+            25,
+            25,
+            25,
+            25
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Kingambit",
+          "level": 61,
+          "moves": [
+            "Iron Head",
+            "Kowtow Cleave",
+            "Zen Headbutt",
+            "Stone Edge"
+          ],
+          "ability": "Defiant",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            25,
+            25,
+            25,
+            25,
+            25,
+            25
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Glimmora",
+          "level": 62,
+          "moves": [
+            "Tera Blast",
+            "Sludge Wave",
+            "Earth Power",
+            "Dazzling Gleam"
+          ],
+          "ability": "Toxic Debris",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            252,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": "M",
+          "gmax": false,
+          "tera_type": "Rock"
+        }
+      ],
+      "role": "champion"
+    }
+  ],
+  "note": null
+}

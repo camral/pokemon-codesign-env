@@ -1,0 +1,870 @@
+{
+  "generation": 4,
+  "region": "Sinnoh",
+  "game": "Platinum",
+  "trainers": [
+    {
+      "name": "Aaron",
+      "team": [
+        {
+          "species": "Yanmega",
+          "level": 49,
+          "moves": [
+            "Air Slash",
+            "Bug Buzz",
+            "U-turn",
+            "Double Team"
+          ],
+          "ability": "Speed Boost",
+          "item": null,
+          "nature": "Rash",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Scizor",
+          "level": 49,
+          "moves": [
+            "Iron Head",
+            "X-Scissor",
+            "Night Slash",
+            "Quick Attack"
+          ],
+          "ability": "Swarm",
+          "item": null,
+          "nature": "Gentle",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Vespiquen",
+          "level": 50,
+          "moves": [
+            "Attack Order",
+            "Defend Order",
+            "Heal Order",
+            "Power Gem"
+          ],
+          "ability": "Pressure",
+          "item": null,
+          "nature": "Careful",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Heracross",
+          "level": 51,
+          "moves": [
+            "Megahorn",
+            "Close Combat",
+            "Night Slash",
+            "Stone Edge"
+          ],
+          "ability": "Swarm",
+          "item": null,
+          "nature": "Naughty",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Drapion",
+          "level": 53,
+          "moves": [
+            "X-Scissor",
+            "Cross Poison",
+            "Ice Fang",
+            "Aerial Ace"
+          ],
+          "ability": "Battle Armor",
+          "item": "Sitrus Berry",
+          "nature": "Jolly",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "elite_four"
+    },
+    {
+      "name": "Bertha",
+      "team": [
+        {
+          "species": "Whiscash",
+          "level": 50,
+          "moves": [
+            "Earth Power",
+            "Aqua Tail",
+            "Zen Headbutt",
+            "Sandstorm"
+          ],
+          "ability": "Oblivious",
+          "item": null,
+          "nature": "Mild",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Gliscor",
+          "level": 53,
+          "moves": [
+            "Earthquake",
+            "Ice Fang",
+            "Fire Fang",
+            "Thunder Fang"
+          ],
+          "ability": "Hyper Cutter",
+          "item": null,
+          "nature": "Serious",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Hippowdon",
+          "level": 52,
+          "moves": [
+            "Earthquake",
+            "Stone Edge",
+            "Crunch",
+            "Yawn"
+          ],
+          "ability": "Sand Stream",
+          "item": null,
+          "nature": "Quirky",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Golem",
+          "level": 52,
+          "moves": [
+            "Earthquake",
+            "Fire Punch",
+            "Thunder Punch",
+            "Sandstorm"
+          ],
+          "ability": "Rock Head",
+          "item": null,
+          "nature": "Docile",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Rhyperior",
+          "level": 55,
+          "moves": [
+            "Earthquake",
+            "Rock Wrecker",
+            "Megahorn",
+            "Avalanche"
+          ],
+          "ability": "Lightning Rod",
+          "item": "Sitrus Berry",
+          "nature": "Naughty",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "elite_four"
+    },
+    {
+      "name": "Flint",
+      "team": [
+        {
+          "species": "Houndoom",
+          "level": 52,
+          "moves": [
+            "Flamethrower",
+            "Sludge Bomb",
+            "Dark Pulse",
+            "Sunny Day"
+          ],
+          "ability": "Early Bird",
+          "item": null,
+          "nature": "Relaxed",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Flareon",
+          "level": 55,
+          "moves": [
+            "Overheat",
+            "Giga Impact",
+            "Quick Attack",
+            "Will-O-Wisp"
+          ],
+          "ability": "Flash Fire",
+          "item": null,
+          "nature": "Quirky",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Rapidash",
+          "level": 53,
+          "moves": [
+            "Flare Blitz",
+            "Solar Beam",
+            "Bounce",
+            "Sunny Day"
+          ],
+          "ability": "Run Away",
+          "item": null,
+          "nature": "Docile",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Infernape",
+          "level": 55,
+          "moves": [
+            "Flare Blitz",
+            "Thunder Punch",
+            "Mach Punch",
+            "Earthquake"
+          ],
+          "ability": "Blaze",
+          "item": null,
+          "nature": "Bold",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Magmortar",
+          "level": 57,
+          "moves": [
+            "Flamethrower",
+            "Thunderbolt",
+            "Solar Beam",
+            "Hyper Beam"
+          ],
+          "ability": "Flame Body",
+          "item": "Sitrus Berry",
+          "nature": "Gentle",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "elite_four"
+    },
+    {
+      "name": "Lucian",
+      "team": [
+        {
+          "species": "Mr. Mime",
+          "level": 53,
+          "moves": [
+            "Psychic",
+            "Thunderbolt",
+            "Reflect",
+            "Light Screen"
+          ],
+          "ability": "Soundproof",
+          "item": null,
+          "nature": "Hasty",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Espeon",
+          "level": 55,
+          "moves": [
+            "Psychic",
+            "Shadow Ball",
+            "Quick Attack",
+            "Signal Beam"
+          ],
+          "ability": "Synchronize",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Bronzong",
+          "level": 54,
+          "moves": [
+            "Psychic",
+            "Gyro Ball",
+            "Earthquake",
+            "Calm Mind"
+          ],
+          "ability": "Levitate",
+          "item": null,
+          "nature": "Naive",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Alakazam",
+          "level": 56,
+          "moves": [
+            "Psychic",
+            "Energy Ball",
+            "Focus Blast",
+            "Recover"
+          ],
+          "ability": "Synchronize",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Gallade",
+          "level": 59,
+          "moves": [
+            "Drain Punch",
+            "Psycho Cut",
+            "Leaf Blade",
+            "Stone Edge"
+          ],
+          "ability": "Steadfast",
+          "item": "Sitrus Berry",
+          "nature": "Careful",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "elite_four"
+    },
+    {
+      "name": "Cynthia",
+      "team": [
+        {
+          "species": "Spiritomb",
+          "level": 58,
+          "moves": [
+            "Dark Pulse",
+            "Psychic",
+            "Silver Wind",
+            "Shadow Ball"
+          ],
+          "ability": "Pressure",
+          "item": null,
+          "nature": "Timid",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Roserade",
+          "level": 58,
+          "moves": [
+            "Energy Ball",
+            "Sludge Bomb",
+            "Toxic",
+            "Extrasensory"
+          ],
+          "ability": "Natural Cure",
+          "item": null,
+          "nature": "Mild",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Togekiss",
+          "level": 60,
+          "moves": [
+            "Air Slash",
+            "Aura Sphere",
+            "Water Pulse",
+            "Shock Wave"
+          ],
+          "ability": "Hustle",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Lucario",
+          "level": 60,
+          "moves": [
+            "Aura Sphere",
+            "Extreme Speed",
+            "Shadow Ball",
+            "Stone Edge"
+          ],
+          "ability": "Steadfast",
+          "item": null,
+          "nature": "Careful",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Milotic",
+          "level": 58,
+          "moves": [
+            "Surf",
+            "Ice Beam",
+            "Mirror Coat",
+            "Dragon Pulse"
+          ],
+          "ability": "Marvel Scale",
+          "item": null,
+          "nature": "Docile",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Garchomp",
+          "level": 62,
+          "moves": [
+            "Dragon Rush",
+            "Earthquake",
+            "Flamethrower",
+            "Giga Impact"
+          ],
+          "ability": "Sand Veil",
+          "item": "Sitrus Berry",
+          "nature": "Quirky",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "champion"
+    }
+  ],
+  "note": null
+}

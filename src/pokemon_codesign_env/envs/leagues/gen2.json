@@ -1,0 +1,870 @@
+{
+  "generation": 2,
+  "region": "Johto",
+  "game": "Crystal",
+  "trainers": [
+    {
+      "name": "Will",
+      "team": [
+        {
+          "species": "Xatu",
+          "level": 40,
+          "moves": [
+            "Quick Attack",
+            "Future Sight",
+            "Confuse Ray",
+            "Psychic"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            26,
+            24,
+            26,
+            26,
+            26
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Jynx",
+          "level": 41,
+          "moves": [
+            "Double Slap",
+            "Lovely Kiss",
+            "Ice Punch",
+            "Psychic"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            26,
+            24,
+            26,
+            26,
+            26
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Exeggutor",
+          "level": 41,
+          "moves": [
+            "Reflect",
+            "Leech Seed",
+            "Egg Bomb",
+            "Psychic"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            26,
+            24,
+            26,
+            26,
+            26
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Slowbro",
+          "level": 41,
+          "moves": [
+            "Curse",
+            "Amnesia",
+            "Body Slam",
+            "Psychic"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            26,
+            24,
+            26,
+            26,
+            26
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Xatu",
+          "level": 42,
+          "moves": [
+            "Quick Attack",
+            "Future Sight",
+            "Confuse Ray",
+            "Psychic"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            26,
+            24,
+            26,
+            26,
+            26
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "elite_four"
+    },
+    {
+      "name": "Koga",
+      "team": [
+        {
+          "species": "Ariados",
+          "level": 40,
+          "moves": [
+            "Double Team",
+            "Spider Web",
+            "Baton Pass",
+            "Giga Drain"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            26,
+            24,
+            26,
+            26,
+            26
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Venomoth",
+          "level": 41,
+          "moves": [
+            "Supersonic",
+            "Gust",
+            "Psychic",
+            "Toxic"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            26,
+            24,
+            26,
+            26,
+            26
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Forretress",
+          "level": 43,
+          "moves": [
+            "Protect",
+            "Swift",
+            "Explosion",
+            "Spikes"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            26,
+            24,
+            26,
+            26,
+            26
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Muk",
+          "level": 42,
+          "moves": [
+            "Minimize",
+            "Acid Armor",
+            "Sludge Bomb",
+            "Toxic"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            26,
+            24,
+            26,
+            26,
+            26
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Crobat",
+          "level": 44,
+          "moves": [
+            "Double Team",
+            "Quick Attack",
+            "Wing Attack",
+            "Toxic"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            26,
+            24,
+            26,
+            26,
+            26
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "elite_four"
+    },
+    {
+      "name": "Bruno",
+      "team": [
+        {
+          "species": "Hitmontop",
+          "level": 42,
+          "moves": [
+            "Pursuit",
+            "Quick Attack",
+            "Dig",
+            "Detect"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            26,
+            24,
+            26,
+            26,
+            26
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Hitmonlee",
+          "level": 42,
+          "moves": [
+            "Swagger",
+            "Double Kick",
+            "High Jump Kick",
+            "Foresight"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            26,
+            24,
+            26,
+            26,
+            26
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Hitmonchan",
+          "level": 42,
+          "moves": [
+            "Thunder Punch",
+            "Ice Punch",
+            "Fire Punch",
+            "Mach Punch"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            26,
+            24,
+            26,
+            26,
+            26
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Onix",
+          "level": 43,
+          "moves": [
+            "Bind",
+            "Earthquake",
+            "Sandstorm",
+            "Rock Slide"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            26,
+            24,
+            26,
+            26,
+            26
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Machamp",
+          "level": 46,
+          "moves": [
+            "Rock Slide",
+            "Foresight",
+            "Vital Throw",
+            "Cross Chop"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            26,
+            24,
+            26,
+            26,
+            26
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "elite_four"
+    },
+    {
+      "name": "Karen",
+      "team": [
+        {
+          "species": "Umbreon",
+          "level": 42,
+          "moves": [
+            "Sand Attack",
+            "Confuse Ray",
+            "Feint Attack",
+            "Mean Look"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            14,
+            30,
+            30,
+            30,
+            26
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Vileplume",
+          "level": 42,
+          "moves": [
+            "Stun Spore",
+            "Acid",
+            "Moonlight",
+            "Petal Dance"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            14,
+            30,
+            30,
+            30,
+            26
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Gengar",
+          "level": 45,
+          "moves": [
+            "Lick",
+            "Spite",
+            "Curse",
+            "Destiny Bond"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            14,
+            30,
+            30,
+            30,
+            26
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Murkrow",
+          "level": 44,
+          "moves": [
+            "Quick Attack",
+            "Whirlwind",
+            "Pursuit",
+            "Feint Attack"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            14,
+            30,
+            30,
+            30,
+            26
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Houndoom",
+          "level": 47,
+          "moves": [
+            "Roar",
+            "Pursuit",
+            "Flamethrower",
+            "Crunch"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            30,
+            14,
+            30,
+            30,
+            30,
+            26
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "elite_four"
+    },
+    {
+      "name": "Lance",
+      "team": [
+        {
+          "species": "Gyarados",
+          "level": 44,
+          "moves": [
+            "Flail",
+            "Rain Dance",
+            "Surf",
+            "Hyper Beam"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            26,
+            24,
+            26,
+            26,
+            26
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Dragonite",
+          "level": 47,
+          "moves": [
+            "Thunder Wave",
+            "Twister",
+            "Thunder",
+            "Hyper Beam"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            26,
+            24,
+            26,
+            26,
+            26
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Dragonite",
+          "level": 47,
+          "moves": [
+            "Thunder Wave",
+            "Twister",
+            "Blizzard",
+            "Hyper Beam"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            26,
+            24,
+            26,
+            26,
+            26
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Aerodactyl",
+          "level": 46,
+          "moves": [
+            "Wing Attack",
+            "Ancient Power",
+            "Rock Slide",
+            "Hyper Beam"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            26,
+            24,
+            26,
+            26,
+            26
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Charizard",
+          "level": 46,
+          "moves": [
+            "Flamethrower",
+            "Wing Attack",
+            "Slash",
+            "Hyper Beam"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            26,
+            24,
+            26,
+            26,
+            26
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Dragonite",
+          "level": 50,
+          "moves": [
+            "Fire Blast",
+            "Safeguard",
+            "Outrage",
+            "Hyper Beam"
+          ],
+          "ability": null,
+          "item": null,
+          "nature": null,
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            26,
+            24,
+            26,
+            26,
+            26
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "champion"
+    }
+  ],
+  "note": null
+}

@@ -61,3 +61,40 @@ env = MaxBasePowerPlayerEnv(team=learner_team, battle_format="gen7ou", opponent_
 ```
 
 `team` is required and accepts a packed team or `TeamDesigner`. `opponent_team` can replace automatic random generation. Remaining keyword arguments are forwarded to `SinglesEnv`; `observation_config` still customizes the shared observation pipeline without changing the baseline preset.
+
+## Pokemon League environments
+
+`PokemonLeagueEnv` provides one configurable League task for every generation. The opponent always uses `SimpleHeuristicsPlayer`; `generation` selects the historical ruleset and `opponent` selects an Elite Four member or Champion.
+
+```python
+from pokemon_codesign_env.configs import FormatConfig, TeamSearchConfig
+from pokemon_codesign_env.envs import PokemonLeagueEnv, get_pokemon_league
+from pokemon_codesign_env.team_designer import TeamDesigner
+
+league = get_pokemon_league(4)
+format_config = FormatConfig.from_showdown(league.battle_format)
+learner_team = TeamDesigner(TeamSearchConfig(format=format_config))
+env = PokemonLeagueEnv(team=learner_team, generation=4, opponent="Cynthia")
+```
+
+The available presets are:
+
+| Generation | Game | League opponents |
+| --- | --- | --- |
+| 1 | Red/Blue | Lorelei, Bruno, Agatha, Lance, Blue |
+| 2 | Crystal | Will, Koga, Bruno, Karen, Lance |
+| 3 | Emerald | Sidney, Phoebe, Glacia, Drake, Wallace |
+| 4 | Platinum | Aaron, Bertha, Flint, Lucian, Cynthia |
+| 5 | Black/White rematch | Shauntal, Grimsley, Caitlin, Marshal, Alder |
+| 6 | X/Y | Wikstrom, Malva, Drasna, Siebold, Diantha |
+| 7 | Ultra Sun/Ultra Moon | Molayne, Olivia, Acerola, Kahili, Hau |
+| 8 | Sword Champion Cup | Bede, Nessa, Bea, Raihan, Leon |
+| 9 | Scarlet/Violet | Rika, Poppy, Larry, Hassel, Geeta |
+
+The trainer teams reproduce the selected games' species order, levels, moves, abilities, held items, natures, genders, EVs, and IVs. Generation I and II use the games' fixed trainer DVs converted to Showdown IVs and zero stat experience; fields that did not exist yet remain unset. Starter-dependent Champions use one documented representative team. Mega Evolution, Z-Moves, Gigantamax, and Terastallization are retained where applicable. Galar has no Elite Four, so its four final Champion Cup opponents occupy the equivalent slots.
+
+The packed Showdown representation follows the standard stat order: HP, Attack, Defense, Special Attack, Special Defense, Speed. A game's implicit or uniform trainer values are still stored on every `LeaguePokemon`, so inspecting `get_pokemon_league(generation)` returns the complete opponent configuration without relying on random-battle fallbacks.
+
+The configurations live in `envs/leagues/gen1.json` through `gen9.json`. Each file contains the League metadata, its ordered trainers, and every Pokemon field. `pokemon_league_env.py` parses these files into the immutable `PokemonLeague`, `LeagueTrainer`, and `LeaguePokemon` objects used by the environment.
+
+The data comes from game-derived sources rather than competitive sets: the `pret` disassemblies for [Red/Blue](https://github.com/pret/pokered), [Crystal](https://github.com/pret/pokecrystal), and [Emerald](https://github.com/pret/pokeemerald); the [PokeFeur vanilla ROM exports](https://github.com/JonatanUHC/PokeFeur) for the later games; and the [Project Pokemon USUM trainer dump](https://projectpokemon.org/research/usum/trainers.txt) for Ultra Sun/Ultra Moon's per-stat IV and EV values. Values derived by the game engine, such as early-generation DVs and deterministic natures, are converted to their equivalent Showdown fields.

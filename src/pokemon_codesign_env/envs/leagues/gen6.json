@@ -1,0 +1,742 @@
+{
+  "generation": 6,
+  "region": "Kalos",
+  "game": "X and Y",
+  "trainers": [
+    {
+      "name": "Wikstrom",
+      "team": [
+        {
+          "species": "Klefki",
+          "level": 63,
+          "moves": [
+            "Dazzling Gleam",
+            "Flash Cannon",
+            "Torment",
+            "Spikes"
+          ],
+          "ability": "Prankster",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            22,
+            22,
+            22,
+            22,
+            22
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Scizor",
+          "level": 63,
+          "moves": [
+            "Bullet Punch",
+            "X-Scissor",
+            "Iron Head",
+            "Night Slash"
+          ],
+          "ability": "Technician",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            22,
+            22,
+            22,
+            22,
+            22
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Probopass",
+          "level": 63,
+          "moves": [
+            "Earth Power",
+            "Power Gem",
+            "Discharge",
+            "Flash Cannon"
+          ],
+          "ability": "Sturdy",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            22,
+            22,
+            22,
+            22,
+            22
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Aegislash",
+          "level": 65,
+          "moves": [
+            "King's Shield",
+            "Sacred Sword",
+            "Shadow Claw",
+            "Iron Head"
+          ],
+          "ability": "Stance Change",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            22,
+            22,
+            22,
+            22,
+            22
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "elite_four"
+    },
+    {
+      "name": "Malva",
+      "team": [
+        {
+          "species": "Pyroar",
+          "level": 63,
+          "moves": [
+            "Hyper Voice",
+            "Flamethrower",
+            "Wild Charge",
+            "Noble Roar"
+          ],
+          "ability": "Rivalry",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            22,
+            22,
+            22,
+            22,
+            22
+          ],
+          "gender": "F",
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Torkoal",
+          "level": 63,
+          "moves": [
+            "Curse",
+            "Earthquake",
+            "Stone Edge",
+            "Flame Wheel"
+          ],
+          "ability": "White Smoke",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            22,
+            22,
+            22,
+            22,
+            22
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Chandelure",
+          "level": 63,
+          "moves": [
+            "Flamethrower",
+            "Shadow Ball",
+            "Confuse Ray",
+            "Confide"
+          ],
+          "ability": "Flame Body",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            22,
+            22,
+            22,
+            22,
+            22
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Talonflame",
+          "level": 65,
+          "moves": [
+            "Brave Bird",
+            "Quick Attack",
+            "Flare Blitz",
+            "Flail"
+          ],
+          "ability": "Flame Body",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            22,
+            22,
+            22,
+            22,
+            22
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "elite_four"
+    },
+    {
+      "name": "Drasna",
+      "team": [
+        {
+          "species": "Dragalge",
+          "level": 63,
+          "moves": [
+            "Dragon Pulse",
+            "Surf",
+            "Sludge Bomb",
+            "Thunderbolt"
+          ],
+          "ability": "Poison Point",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            22,
+            22,
+            22,
+            22,
+            22
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Druddigon",
+          "level": 63,
+          "moves": [
+            "Dragon Tail",
+            "Revenge",
+            "Retaliate",
+            "Chip Away"
+          ],
+          "ability": "Rough Skin",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            22,
+            22,
+            22,
+            22,
+            22
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Altaria",
+          "level": 63,
+          "moves": [
+            "Moonblast",
+            "Dragon Pulse",
+            "Cotton Guard",
+            "Sing"
+          ],
+          "ability": "Natural Cure",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            22,
+            22,
+            22,
+            22,
+            22
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Noivern",
+          "level": 65,
+          "moves": [
+            "Air Slash",
+            "Dragon Pulse",
+            "Flamethrower",
+            "Super Fang"
+          ],
+          "ability": "Frisk",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            22,
+            22,
+            22,
+            22,
+            22
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "elite_four"
+    },
+    {
+      "name": "Siebold",
+      "team": [
+        {
+          "species": "Clawitzer",
+          "level": 63,
+          "moves": [
+            "Water Pulse",
+            "Dark Pulse",
+            "Dragon Pulse",
+            "Aura Sphere"
+          ],
+          "ability": "Mega Launcher",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            22,
+            22,
+            22,
+            22,
+            22
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Gyarados",
+          "level": 63,
+          "moves": [
+            "Waterfall",
+            "Ice Fang",
+            "Earthquake",
+            "Dragon Dance"
+          ],
+          "ability": "Intimidate",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            22,
+            22,
+            22,
+            22,
+            22
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Starmie",
+          "level": 63,
+          "moves": [
+            "Dazzling Gleam",
+            "Psychic",
+            "Surf",
+            "Light Screen"
+          ],
+          "ability": "Illuminate",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            22,
+            22,
+            22,
+            22,
+            22
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Barbaracle",
+          "level": 65,
+          "moves": [
+            "Cross Chop",
+            "Stone Edge",
+            "Razor Shell",
+            "X-Scissor"
+          ],
+          "ability": "Tough Claws",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            22,
+            22,
+            22,
+            22,
+            22,
+            22
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "elite_four"
+    },
+    {
+      "name": "Diantha",
+      "team": [
+        {
+          "species": "Hawlucha",
+          "level": 64,
+          "moves": [
+            "Swords Dance",
+            "Flying Press",
+            "X-Scissor",
+            "Poison Jab"
+          ],
+          "ability": "Limber",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            8,
+            8,
+            8,
+            8,
+            8,
+            8
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Tyrantrum",
+          "level": 65,
+          "moves": [
+            "Head Smash",
+            "Earthquake",
+            "Dragon Claw",
+            "Crunch"
+          ],
+          "ability": "Strong Jaw",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            8,
+            8,
+            8,
+            8,
+            8,
+            8
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Aurorus",
+          "level": 65,
+          "moves": [
+            "Thunder",
+            "Blizzard",
+            "Light Screen",
+            "Reflect"
+          ],
+          "ability": "Refrigerate",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            8,
+            8,
+            8,
+            8,
+            8,
+            8
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Gourgeist",
+          "level": 65,
+          "moves": [
+            "Trick-or-Treat",
+            "Phantom Force",
+            "Seed Bomb",
+            "Shadow Sneak"
+          ],
+          "ability": "Pickup",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            8,
+            8,
+            8,
+            8,
+            8,
+            8
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Goodra",
+          "level": 66,
+          "moves": [
+            "Dragon Pulse",
+            "Muddy Water",
+            "Fire Blast",
+            "Focus Blast"
+          ],
+          "ability": "Sap Sipper",
+          "item": null,
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            8,
+            8,
+            8,
+            8,
+            8,
+            8
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        },
+        {
+          "species": "Gardevoir",
+          "level": 68,
+          "moves": [
+            "Moonblast",
+            "Psychic",
+            "Shadow Ball",
+            "Thunderbolt"
+          ],
+          "ability": "Trace",
+          "item": "Gardevoirite",
+          "nature": "Hardy",
+          "evs": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ivs": [
+            8,
+            8,
+            8,
+            8,
+            8,
+            8
+          ],
+          "gender": null,
+          "gmax": false,
+          "tera_type": null
+        }
+      ],
+      "role": "champion"
+    }
+  ],
+  "note": null
+}

@@ -405,10 +405,7 @@ class BatchedTeamDesigner:
         if not isinstance(parameter_values, list):
             raise TypeError("parameter_values must be a list.")
         if len(parameter_values) != len(self.team_designers):
-            raise ValueError(
-                f"Expected {len(self.team_designers)} parameter sets, "
-                f"got {len(parameter_values)}."
-            )
+            raise ValueError(f"Expected {len(self.team_designers)} parameter sets, got {len(parameter_values)}.")
 
         for designer, team_parameters in zip(self.team_designers, parameter_values, strict=True):
             designer.set_optimizable_parameter_values(team_parameters)

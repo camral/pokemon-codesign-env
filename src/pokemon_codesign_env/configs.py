@@ -92,6 +92,49 @@ class FormatConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class ObservationConfig:
+    """Select the human-visible state included in a battle observation."""
+
+    team_size: int = 6
+    move_slots: int = 4
+    max_effects: int = 12
+    max_fields: int = 8
+    max_side_conditions: int = 12
+
+    include_turn: bool = True
+    include_mechanics: bool = True
+    include_weather: bool = True
+    include_fields: bool = True
+    include_side_conditions: bool = True
+    include_available_moves: bool = True
+    include_own_team: bool = True
+    include_opponent_team: bool = True
+
+    include_presence: bool = True
+    include_identity: bool = True
+    include_health: bool = True
+    include_status: bool = True
+    include_item: bool = True
+    include_ability: bool = True
+    include_nature: bool = True
+    include_moves: bool = True
+    include_action_state: bool = True
+    include_boosts: bool = True
+    include_stats: bool = True
+    include_effects: bool = True
+
+    def __post_init__(self) -> None:
+        if self.team_size < 1:
+            raise ValueError(f"team_size must be at least 1, got {self.team_size}")
+        if not 1 <= self.move_slots <= 4:
+            raise ValueError(f"move_slots must be 1-4, got {self.move_slots}")
+        for field_name in ("max_effects", "max_fields", "max_side_conditions"):
+            value = getattr(self, field_name)
+            if value < 0:
+                raise ValueError(f"{field_name} must be non-negative, got {value}")
+
+
+@dataclass(frozen=True, slots=True)
 class TeamSearchConfig:
     """Restrictions on the portion of a format's legal team space being searched."""
 

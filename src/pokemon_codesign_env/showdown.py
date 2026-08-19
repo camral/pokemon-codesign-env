@@ -102,7 +102,10 @@ def get_parameter_values(
             }
             values = Array.from(moveIds)
                 .map(moveId => dex.moves.get(moveId))
-                .filter(move => move.exists && !validator.checkMove({ name: 'Pokemon' }, move, {}))
+                .filter(move => (
+                    move.exists && move.gen <= dex.gen &&
+                    !validator.checkMove({ name: 'Pokemon' }, move, {})
+                ))
                 .map(move => move.name);
         } else if (param === 'ability') {
             const abilityNames = new Set();

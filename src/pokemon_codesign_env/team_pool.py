@@ -48,14 +48,14 @@ class RandomTeamPool:
         valid_teams = []
         for _ in range(max_batches):
             candidates = [generate_team() for _ in range(size - len(valid_teams))]
-            validation_errors = _validate_team_batch(Path(showdown_path).resolve(), format_id, candidates)
+            validation_errors = validate_team_batch(Path(showdown_path).resolve(), format_id, candidates)
             valid_teams.extend(team for team, errors in zip(candidates, validation_errors, strict=True) if errors is None)
             if len(valid_teams) == size:
                 return cls(tuple(valid_teams))
         raise RuntimeError(f"Could only generate {len(valid_teams)} valid teams for a pool of {size}")
 
 
-def _validate_team_batch(showdown_path: Path, format_id: str, teams: list[str]) -> list[list[str] | None]:
+def validate_team_batch(showdown_path: Path, format_id: str, teams: list[str]) -> list[list[str] | None]:
     script = """
         const fs = require('fs');
         const { Teams } = require('./dist/sim/teams');

@@ -44,8 +44,10 @@ that must be added manually.
 ## Minimal SB3 + NGOpt experiment
 
 The example in `examples/train_sb3_ngopt.py` uses NGOpt to choose the species
-and nature of all six Pokemon. It trains a fresh masked PPO controller for each
-candidate using `RandomPlayerEnv` by default. Each baseline environment gives
+and nature of all six Pokemon. Every vector environment receives an independent
+NGOpt team, and the complete population is scored and replaced after every PPO
+rollout. One masked PPO controller learns continuously across these embodiment
+populations using `RandomPlayerEnv` by default. Each baseline environment gives
 the opponent a newly generated random team for every battle.
 
 Start the bundled Pokemon Showdown server in another terminal:
@@ -59,7 +61,6 @@ Then run the small experiment:
 
 ```bash
 python examples/train_sb3_ngopt.py \
-  --ng-budget 4 \
   --ppo-timesteps 2048 \
   --evaluation-episodes 8 \
   --verbose
@@ -115,8 +116,6 @@ python examples/train_sb3_ngopt.py \
   --rollout-steps 32 \
   --batch-size 8192 \
   --ppo-timesteps 1048576 \
-  --ng-budget 16 \
-  --ng-workers 1 \
   --random-team-pool-size 8192 \
   --profile-gpu \
   --progress \
@@ -146,13 +145,14 @@ The PPO rollout buffer contains `num_envs * rollout_steps` samples, and
 utilization when supported by the installed PyTorch build, and allocated,
 reserved, and peak CUDA memory during training.
 
-`--ng-workers N` evaluates up to N embodiment candidates concurrently and
-requires `--vec-env subproc` so each candidate's poke-env state remains process
-isolated. Each candidate owns its own PPO model and vector environment, so
-increase this only when the server, CPU, and GPU memory can support them.
-Usually one NGOpt worker with several vector environments is the best
-configuration for a single GPU. The self-play example keeps frozen opponent
-inference on CPU by default; use `--opponent-device` to change it.
+NGOpt evaluates `num_envs` embodiments concurrently. Their rollout returns are
+reported to the optimizer, new teams are sampled and batch-validated, and each
+environment is reset onto its replacement team before the next rollout.
+The total number of NGOpt evaluations is exactly
+`num_envs * ceil(ppo_timesteps / (num_envs * rollout_steps))`; population size
+and parallelism both come directly from `--num-envs`. The self-play example
+keeps frozen opponent inference on CPU by default; use `--opponent-device` to
+change it.
 
 The installed PyTorch build must include support for the requested accelerator.
 Before a long run, verify the selected CUDA index with:
@@ -173,15 +173,14 @@ python examples/train_pokemon_league_sb3_ngopt.py \
 ```
 
 W&B tracks the full experiment: PPO rollout and training statistics, NGOpt
-candidate returns and incumbent progress, candidate duration, wall time, the
-current recommendation, optional GPU statistics, and promoted controller
-checkpoints. Scale telemetry starts before the first PPO update and includes
+population mean and incumbent returns, wall time, optional GPU statistics, and
+promoted controller checkpoints. Scale telemetry starts before the first PPO update and includes
 environment readiness, startup time, vector steps, buffer fill, completed
 episodes, recent FPS, average FPS, and transitions per second. Replay recording
-remains evaluation-only, and every candidate is evaluated by one environment
-even when training uses multiple vector workers. One representative evaluation
-battle is displayed in W&B as an HTML Pokemon Showdown replay and uploaded in a
-downloadable `evaluation-replays` artifact.
+remains evaluation-only. After training, the final NGOpt recommendation is
+evaluated by one environment and one representative battle is displayed in W&B
+as an HTML Pokemon Showdown replay and uploaded in a downloadable
+`evaluation-replays` artifact.
 Use `--wandb-mode offline` to save locally for later `wandb sync`, or
 `--wandb-mode disabled` to exercise the same configuration without logging.
 Optional run organization is available through `--wandb-name` and
@@ -232,15 +231,13 @@ The example's selected configuration is `OBSERVATION_CONFIG` near the top of
 Controllers trained with the earlier 12-value observation are incompatible
 with this encoder and must be retrained before using `--watch`.
 
-The best evaluated team and its PPO controller are written to
-`runs/minimal_codesign/`. This is intentionally a nested baseline: every NGOpt
-candidate receives a freshly initialized PPO controller, making embodiment
-scores comparable at the cost of additional training time.
+The final recommended team and jointly trained PPO controller are written to
+`runs/minimal_codesign/`.
 
 ## Pokemon League experiment
 
-`examples/train_pokemon_league_sb3_ngopt.py` applies the same nested SB3 and
-NGOpt setup to a complete five-battle League episode:
+`examples/train_pokemon_league_sb3_ngopt.py` applies the same rollout-population
+SB3 and NGOpt setup to a complete five-battle League episode:
 
 ```bash
 python examples/train_pokemon_league_sb3_ngopt.py \
@@ -274,13 +271,12 @@ manage the local server automatically. Replays are saved under
 
 `examples/train_self_play_sb3_ngopt.py` performs iterative frozen-policy
 self-play. The first round bootstraps against `RandomPlayer`; each later round
-runs NGOpt and trains fresh PPO challengers against the previous round's fixed
-champion team and controller.
+runs rollout-population NGOpt and trains one PPO challenger against the previous
+round's fixed champion team and controller.
 
 ```bash
 python examples/train_self_play_sb3_ngopt.py \
   --self-play-rounds 3 \
-  --ng-budget 4 \
   --launch-server \
   --verbose
 ```

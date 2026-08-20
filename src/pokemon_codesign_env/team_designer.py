@@ -415,3 +415,7 @@ class BatchedTeamDesigner:
     def sample_observations(self) -> list[dict]:
         """Sample one observation dictionary per TeamDesigner."""
         return [designer.sample_observations() for designer in self.team_designers]
+
+    def yield_teams(self) -> list[str]:
+        """Serialize one independently configured team per batch position."""
+        return [designer.yield_team() for designer in self.team_designers]

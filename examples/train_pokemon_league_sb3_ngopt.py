@@ -1,8 +1,9 @@
 """Train SB3 PPO control and NGOpt embodiment on PokemonLeagueEnv.
 
-NGOpt selects the species and nature of a six-Pokemon team. A fresh masked PPO
-controller is trained for every candidate. Use --random-league to sample one of
-the nine Leagues per episode, or --generation for a fixed League.
+NGOpt selects the species and nature of a six-Pokemon team. Each PPO rollout
+uses one independently sampled team per environment, then replaces the
+population while one controller keeps learning. Use --random-league to sample
+one of the nine Leagues per episode, or --generation for a fixed League.
 """
 
 import argparse
@@ -23,22 +24,22 @@ from pokemon_codesign_env.team_pool import RandomTeamPool
 
 if __package__:
     from examples.train_sb3_ngopt import (
-        INVALID_CANDIDATE_LOSS,
         MaskedActorCriticPolicy,
         RetryingTeamDesigner,
+        RolloutTeamOptimizerCallback,
         WandbEvaluationLogger,
         add_compute_arguments,
         collect_evaluation_replays,
         evaluation_account_configurations,
         evaluation_replay_dir,
-        evaluate_vector_controller,
         make_ngopt_parameterization,
         make_search_config,
         make_team,
         make_training_callback,
         make_vector_env,
         managed_showdown_cluster,
-        run_ngopt,
+        rollout_population_evaluations,
+        sample_team_population,
         server_configuration_for,
         showdown_cluster,
         validate_compute_arguments,
@@ -47,22 +48,22 @@ if __package__:
     )
 else:
     from train_sb3_ngopt import (
-        INVALID_CANDIDATE_LOSS,
         MaskedActorCriticPolicy,
         RetryingTeamDesigner,
+        RolloutTeamOptimizerCallback,
         WandbEvaluationLogger,
         add_compute_arguments,
         collect_evaluation_replays,
         evaluation_account_configurations,
         evaluation_replay_dir,
-        evaluate_vector_controller,
         make_ngopt_parameterization,
         make_search_config,
         make_team,
         make_training_callback,
         make_vector_env,
         managed_showdown_cluster,
-        run_ngopt,
+        rollout_population_evaluations,
+        sample_team_population,
         server_configuration_for,
         showdown_cluster,
         validate_compute_arguments,
@@ -107,6 +108,7 @@ def make_league_training_env(
     save_replays: bool | str = False,
     account_configuration1: AccountConfiguration | None = None,
     account_configuration2: AccountConfiguration | None = None,
+    learner_teams: list[str] | None = None,
 ):
     """Create independently seeded League workers for PPO data collection."""
     num_envs = num_envs or args.num_envs
@@ -114,8 +116,12 @@ def make_league_training_env(
 
     def make_env(rank: int):
         def initialize():
+            learner_team = (
+                learner_teams[rank] if learner_teams is not None else
+                make_team(search_config, parameter_values, seed + rank) if learner_team_pool is None else learner_team_pool.builder(seed + rank)
+            )
             return PokemonLeagueEnv(
-                team=make_team(search_config, parameter_values, seed + rank) if learner_team_pool is None else learner_team_pool.builder(seed + rank),
+                team=learner_team,
                 generation=None if args.random_league else args.generation,
                 random_league=args.random_league,
                 difficulty=args.difficulty,
@@ -145,83 +151,6 @@ def evaluate_controller(model: PPO, env, episodes: int) -> float:
             episode_return += float(reward)
         episode_returns.append(episode_return)
     return float(np.mean(episode_returns))
-
-
-def evaluate_candidate(
-    parameter_values: dict,
-    search_config,
-    observation_encoder: HumanVisibleBattleEncoder,
-    args: argparse.Namespace,
-    evaluation: int,
-    seed: int,
-    wandb_logger: WandbEvaluationLogger,
-) -> tuple[float, PPO | None, tuple[Path, ...]]:
-    """Train one candidate controller and return NGOpt's minimization loss."""
-    team = make_team(search_config, parameter_values, seed)
-    try:
-        team.yield_team()
-    except ValueError as error:
-        print(f"Rejected embodiment {parameter_values}: {error}")
-        return INVALID_CANDIDATE_LOSS, None, ()
-
-    learner_pool_size = args.learner_team_pool_size or (max(args.num_envs, 1_024) if args.vec_env == "sharded" else 0)
-    learner_team_pool = None
-    if learner_pool_size:
-        wandb_logger.log_system("learner_team_pool_generating", label=f"candidate-{evaluation + 1}", team_pool_size=learner_pool_size)
-        pool_started_at = time.monotonic()
-        team.validate_teams = False
-        learner_team_pool = RandomTeamPool.from_generator(
-            search_config.format.showdown_path, search_config.format.format_id, learner_pool_size, team.yield_team
-        )
-        wandb_logger.log_system(
-            "learner_team_pool_ready", label=f"candidate-{evaluation + 1}", team_pool_size=learner_pool_size,
-            team_pool_startup_s=time.monotonic() - pool_started_at,
-        )
-
-    wandb_logger.log_system("environments_starting", label=f"candidate-{evaluation + 1}", candidate=evaluation, ready_environments=0)
-    environments_started_at = time.monotonic()
-    training_env = make_league_training_env(search_config, parameter_values, observation_encoder, args, seed, learner_team_pool)
-    wandb_logger.log_system(
-        "environments_ready", label=f"candidate-{evaluation + 1}", candidate=evaluation, ready_environments=args.num_envs,
-        environment_startup_s=time.monotonic() - environments_started_at,
-    )
-    replay_dir = evaluation_replay_dir(args.output_dir, f"candidate_{evaluation + 1}")
-    previous_replays = set(replay_dir.glob("*.html"))
-    evaluation_accounts = evaluation_account_configurations("LeagueOpponent", evaluation, args.ng_workers > 1)
-    if args.ng_workers > 1:
-        evaluation_env = make_league_training_env(
-            search_config, parameter_values, observation_encoder, args, seed + args.num_envs, num_envs=1, vec_env="subproc", save_replays=str(replay_dir),
-            account_configuration1=evaluation_accounts[0], account_configuration2=evaluation_accounts[1],
-        )
-    else:
-        evaluation_env = make_league_env(
-            make_team(search_config, parameter_values, seed + args.num_envs), observation_encoder,
-            None if args.random_league else args.generation, args.random_league, args.difficulty,
-            server_configuration=server_configuration_for(args, args.num_envs), challenge_timeout=args.challenge_timeout, save_replays=str(replay_dir),
-            account_configuration1=evaluation_accounts[0], account_configuration2=evaluation_accounts[1],
-        )
-    try:
-        model = PPO(
-            MaskedActorCriticPolicy,
-            training_env,
-            n_steps=args.rollout_steps,
-            batch_size=args.batch_size,
-            learning_rate=3e-4,
-            gamma=0.99,
-            ent_coef=0.01,
-            seed=seed,
-            device=args.device,
-            verbose=int(args.verbose),
-        )
-        model.learn(total_timesteps=args.ppo_timesteps, callback=make_training_callback(args, wandb_logger, f"candidate-{evaluation + 1}", evaluation))
-        if args.ng_workers > 1:
-            mean_return = evaluate_vector_controller(model, evaluation_env, args.evaluation_episodes)
-        else:
-            mean_return = evaluate_controller(model, evaluation_env, args.evaluation_episodes)
-    finally:
-        training_env.close()
-        evaluation_env.close()
-    return -mean_return, model, collect_evaluation_replays(replay_dir, previous_replays)
 
 
 def watch_saved_controller(
@@ -302,7 +231,6 @@ def parse_args() -> argparse.Namespace:
     league.add_argument("--generation", type=int, choices=range(1, 10))
     league.add_argument("--random-league", action="store_true")
     parser.add_argument("--difficulty", type=int, choices=(0, 1), default=0)
-    parser.add_argument("--ng-budget", type=int, default=4)
     parser.add_argument("--ppo-timesteps", type=int, default=2048)
     parser.add_argument("--evaluation-episodes", type=int, default=4)
     parser.add_argument("--seed", type=int, default=0)
@@ -355,35 +283,50 @@ def main() -> None:
 
         schema_path = args.output_dir / "observation_schema.json"
         schema_path.write_text(json.dumps(observation_encoder.get_schema(), indent=2) + "\n", encoding="utf-8")
+        rollout_size = args.num_envs * args.rollout_steps
+        rollout_count = (args.ppo_timesteps + rollout_size - 1) // rollout_size
+        population_evaluations = rollout_population_evaluations(args.ppo_timesteps, args.num_envs, args.rollout_steps)
         parametrization = make_ngopt_parameterization(search_config)
         parametrization.random_state.seed(args.seed)
-        optimizer = ng.optimizers.NGOpt(parametrization=parametrization, budget=args.ng_budget, num_workers=args.ng_workers)
-
-        best_loss = float("inf")
-        best_parameters = None
-
-        def evaluate(evaluation, parameters):
-            return evaluate_candidate(parameters, search_config, observation_encoder, args, evaluation, args.seed + evaluation, wandb_logger)
-
-        for evaluation, parameters, loss, model, replay_paths, duration in run_ngopt(optimizer, args.ng_budget, args.ng_workers, evaluate):
-            print(f"candidate={evaluation + 1}/{args.ng_budget} mean_return={-loss:.3f} parameters={parameters}")
-            wandb_logger.log(f"candidate-{evaluation + 1}", evaluation, -loss, parameters, replay_paths)
-            if model is not None and loss < best_loss:
-                best_loss = loss
-                best_parameters = parameters
-                model.save(args.output_dir / "best_controller")
-                (args.output_dir / "best_team.json").write_text(json.dumps(parameters, indent=2) + "\n", encoding="utf-8")
-                wandb_logger.log_checkpoint(
-                    f"candidate-{evaluation + 1}",
-                    (args.output_dir / "best_controller.zip", args.output_dir / "best_team.json", args.output_dir / "observation_schema.json"),
-                )
-            recommendation = optimizer.provide_recommendation().value
-            wandb_logger.log_optimization(f"candidate-{evaluation + 1}", evaluation, -loss, -best_loss, parameters, recommendation, duration)
+        optimizer = ng.optimizers.NGOpt(parametrization=parametrization, budget=population_evaluations, num_workers=args.num_envs)
+        candidates, parameters, teams = sample_team_population(optimizer, search_config, args.num_envs, args.seed)
+        training_env = make_league_training_env(search_config, parameters[0], observation_encoder, args, args.seed, learner_teams=teams)
+        team_optimizer_callback = RolloutTeamOptimizerCallback(
+            optimizer, search_config, candidates, parameters, args.seed, args.ppo_timesteps, wandb_logger, "league-codesign"
+        )
+        model = PPO(
+            MaskedActorCriticPolicy, training_env, n_steps=args.rollout_steps, batch_size=args.batch_size, learning_rate=3e-4,
+            gamma=0.99, ent_coef=0.01, seed=args.seed, device=args.device, verbose=int(args.verbose),
+        )
+        try:
+            callback = make_training_callback(args, wandb_logger, "league-codesign", 0, team_optimizer_callback=team_optimizer_callback)
+            model.learn(total_timesteps=args.ppo_timesteps, callback=callback)
+        finally:
+            training_env.close()
 
         recommendation = optimizer.provide_recommendation().value
-        wandb_logger.log_final(-best_loss, recommendation)
-        print(f"best_evaluated_return={-best_loss:.3f} best_team={best_parameters}")
-        print(f"ngopt_recommendation={recommendation}")
+        replay_dir = evaluation_replay_dir(args.output_dir, "final")
+        previous_replays = set(replay_dir.glob("*.html"))
+        evaluation_accounts = evaluation_account_configurations("LeagueOpponent", 0)
+        evaluation_env = make_league_env(
+            make_team(search_config, recommendation, args.seed + population_evaluations), observation_encoder,
+            None if args.random_league else args.generation, args.random_league, args.difficulty,
+            server_configuration=server_configuration_for(args, args.num_envs), challenge_timeout=args.challenge_timeout, save_replays=str(replay_dir),
+            account_configuration1=evaluation_accounts[0], account_configuration2=evaluation_accounts[1],
+        )
+        try:
+            mean_return = evaluate_controller(model, evaluation_env, args.evaluation_episodes)
+        finally:
+            evaluation_env.close()
+        replay_paths = collect_evaluation_replays(replay_dir, previous_replays)
+        model.save(args.output_dir / "best_controller")
+        (args.output_dir / "best_team.json").write_text(json.dumps(recommendation, indent=2) + "\n", encoding="utf-8")
+        wandb_logger.log("final", rollout_count - 1, mean_return, recommendation, replay_paths)
+        wandb_logger.log_final(mean_return, recommendation)
+        wandb_logger.log_checkpoint(
+            "final", (args.output_dir / "best_controller.zip", args.output_dir / "best_team.json", args.output_dir / "observation_schema.json")
+        )
+        print(f"evaluated_return={mean_return:.3f} best_team={recommendation}")
 
 
 if __name__ == "__main__":

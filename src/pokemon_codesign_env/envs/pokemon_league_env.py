@@ -385,6 +385,13 @@ class PokemonLeagueEnv(Env):
             )
         )
 
+    def set_learner_team(self, team: str) -> None:
+        """Use a new learner embodiment from the next League episode onward."""
+        self.team = team
+        self._base_team = None
+        self._current_team = None
+        self._battle_env.set_learner_team(team)
+
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
         if self.random_league:

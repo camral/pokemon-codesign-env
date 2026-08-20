@@ -45,7 +45,10 @@ class ShowdownRandomTeam(Teambuilder):
         last_error = None
         for _ in range(self.max_attempts):
             try:
-                result = subprocess.run([str(self.showdown_path / "pokemon-showdown"), "generate-team", self.source_format], cwd=self.showdown_path, capture_output=True, check=False, text=True)
+                result = subprocess.run(
+                    [str(self.showdown_path / "pokemon-showdown"), "generate-team", self.source_format], cwd=self.showdown_path,
+                    capture_output=True, check=False, text=True,
+                )
                 if result.returncode:
                     message = result.stderr.strip() or result.stdout.strip()
                     raise RuntimeError(f"Pokemon Showdown could not generate a team: {message}")
@@ -103,7 +106,11 @@ class BaselineOpponentEnv(SingleAgentWrapper):
     OPPONENT_CLASS: type
     OBSERVATION_CONFIG = ObservationConfig()
 
-    def __init__(self, team=None, battle_format: str | None = None, opponent_team_format: str | None = None, observation_config: ObservationConfig | None = None, observation_encoder: HumanVisibleBattleEncoder | None = None, showdown_path: Path | None = None, opponent_team=None, opponent_kwargs: dict | None = None, **env_kwargs):
+    def __init__(
+        self, team=None, battle_format: str | None = None, opponent_team_format: str | None = None,
+        observation_config: ObservationConfig | None = None, observation_encoder: HumanVisibleBattleEncoder | None = None,
+        showdown_path: Path | None = None, opponent_team=None, opponent_kwargs: dict | None = None, **env_kwargs,
+    ):
         if team is None:
             raise ValueError("team must contain the co-design agent's designed team")
         battle_format = battle_format or self.BATTLE_FORMAT
@@ -133,6 +140,11 @@ class BaselineOpponentEnv(SingleAgentWrapper):
 
     def make_random_opponent_team(self) -> ShowdownRandomTeam:
         return ShowdownRandomTeam(self.opponent_team_format, self.format_config.format_id, self.format_config.showdown_path)
+
+    def set_learner_team(self, team: str) -> None:
+        """Use a new learner embodiment from the next battle onward."""
+        self.team = team
+        self.env.agent1.update_team(team)
 
     @staticmethod
     def _structured(observation):

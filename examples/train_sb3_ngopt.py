@@ -220,11 +220,9 @@ def sample_team_population(optimizer, search_config: TeamSearchConfig, populatio
         needed = population_size - len(teams)
         proposed_candidates = [optimizer.ask() for _ in range(needed)]
         proposed_parameters = [decode_ngopt_parameter_values(candidate.value, species_values, nature_values) for candidate in proposed_candidates]
-        team_batch = BatchedTeamDesigner(team_designers=[
-            make_team(search_config, values, seed + attempts + index, validate_teams=False)
-            for index, values in enumerate(proposed_parameters)
-        ])
-        proposed_teams = team_batch.yield_teams()
+        proposed_teams = BatchedTeamDesigner.serialize_parameter_values(
+            search_config, proposed_parameters, [seed + attempts + index for index in range(needed)]
+        )
         errors = validate_team_batch(search_config.format.showdown_path, search_config.format.format_id, proposed_teams)
         for candidate, values, team, error in zip(proposed_candidates, proposed_parameters, proposed_teams, errors, strict=True):
             if error is None:

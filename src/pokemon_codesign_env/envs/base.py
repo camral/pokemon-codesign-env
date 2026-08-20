@@ -74,6 +74,17 @@ class HumanVisibleSinglesEnv(SinglesEnv):
     def embed_battle(self, battle: AbstractBattle) -> dict[str, np.ndarray]:
         return self.observation_encoder.encode(battle)
 
+    @staticmethod
+    def order_to_action(order, battle, fake: bool = False, strict: bool = True) -> np.int64:
+        """Convert opponent orders without poke-env's unbounded recursive fallback."""
+        try:
+            return SinglesEnv.order_to_action(order, battle, fake=fake, strict=True)
+        except (AssertionError, ValueError):
+            if strict:
+                raise
+            legal_actions = np.flatnonzero(SinglesEnv.get_action_mask(battle))
+            return np.int64(legal_actions[0] if legal_actions.size else 0)
+
     def close(self, force: bool = True, wait: bool = True):
         super().close(force=force, wait=wait)
         for agent in (self.agent1, self.agent2):

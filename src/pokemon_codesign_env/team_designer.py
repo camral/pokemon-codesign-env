@@ -419,3 +419,16 @@ class BatchedTeamDesigner:
     def yield_teams(self) -> list[str]:
         """Serialize one independently configured team per batch position."""
         return [designer.yield_team() for designer in self.team_designers]
+
+    @staticmethod
+    def serialize_parameter_values(search_config: TeamSearchConfig, parameter_values: list[dict], seeds: list[int]) -> list[str]:
+        """Serialize a parameter batch through one reusable lightweight team compiler."""
+        if len(parameter_values) != len(seeds):
+            raise ValueError(f"Expected one seed per parameter set, got {len(seeds)} seeds for {len(parameter_values)} parameter sets.")
+        designer = TeamDesigner(search_config, validate_teams=False)
+        teams = []
+        for values, seed in zip(parameter_values, seeds, strict=True):
+            designer.set_optimizable_parameter_values(values)
+            designer.rng = np.random.default_rng(seed)
+            teams.append(designer.yield_team())
+        return teams

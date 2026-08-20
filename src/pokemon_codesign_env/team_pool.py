@@ -1,8 +1,11 @@
+import atexit
 import json
+import os
 import random
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock
 from typing import Callable
 
 from poke_env.teambuilder import Teambuilder
@@ -55,20 +58,124 @@ class RandomTeamPool:
         raise RuntimeError(f"Could only generate {len(valid_teams)} valid teams for a pool of {size}")
 
 
-def validate_team_batch(showdown_path: Path, format_id: str, teams: list[str]) -> list[list[str] | None]:
-    script = """
-        const fs = require('fs');
+class TeamBatchValidator:
+    """Keep one Showdown validator process alive for repeated team batches."""
+
+    SCRIPT = """
+        const readline = require('readline');
         const { Teams } = require('./dist/sim/teams');
         const { TeamValidator } = require('./dist/sim/team-validator');
         const validator = TeamValidator.get(process.argv[1]);
-        const teams = JSON.parse(fs.readFileSync(0, 'utf8'));
-        console.log(JSON.stringify(teams.map(team => validator.validateTeam(Teams.unpack(team)) || null)));
+        const input = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+        input.on('line', line => {
+            try {
+                const teams = JSON.parse(line);
+                process.stdout.write(JSON.stringify(teams.map(team => validator.validateTeam(Teams.unpack(team)) || null)) + '\\n');
+            } catch (error) {
+                process.stdout.write(JSON.stringify({ error: error.stack || String(error) }) + '\\n');
+            }
+        });
     """
-    result = subprocess.run(["node", "-e", script, format_id], cwd=showdown_path, input=json.dumps(teams), capture_output=True, check=False, text=True)
-    if result.returncode:
-        message = result.stderr.strip() or result.stdout.strip()
-        raise RuntimeError(f"Pokemon Showdown could not validate the generated team pool: {message}")
-    return json.loads(result.stdout)
+
+    def __init__(self, showdown_path: Path, format_id: str):
+        self.showdown_path = Path(showdown_path).resolve()
+        self.format_id = format_id
+        self.lock = Lock()
+        self.process = None
+        self.owner_pid = None
+
+    def _start(self) -> None:
+        self.process = subprocess.Popen(
+            ["node", "-e", self.SCRIPT, self.format_id], cwd=self.showdown_path, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True, bufsize=1,
+        )
+        self.owner_pid = os.getpid()
+
+    def _discard_inherited_process(self) -> None:
+        if self.process is not None:
+            for stream in (self.process.stdin, self.process.stdout, self.process.stderr):
+                if stream is not None:
+                    stream.close()
+        self.process = None
+        self.owner_pid = None
+
+    def _ensure_started(self) -> None:
+        if self.owner_pid is not None and self.owner_pid != os.getpid():
+            self._discard_inherited_process()
+        if self.process is None or self.process.poll() is not None:
+            self.close()
+            self._start()
+
+    def validate(self, teams: list[str]) -> list[list[str] | None]:
+        with self.lock:
+            for attempt in range(2):
+                self._ensure_started()
+                try:
+                    self.process.stdin.write(json.dumps(teams) + "\n")
+                    self.process.stdin.flush()
+                    response = self.process.stdout.readline()
+                    if not response:
+                        message = self.process.stderr.read().strip()
+                        raise RuntimeError(message or "validator process exited without a response")
+                    result = json.loads(response)
+                    if isinstance(result, dict) and "error" in result:
+                        raise RuntimeError(result["error"])
+                    if not isinstance(result, list) or len(result) != len(teams):
+                        result_count = len(result) if isinstance(result, list) else type(result).__name__
+                        raise RuntimeError(f"validator returned {result_count} results for {len(teams)} teams")
+                    return result
+                except (BrokenPipeError, json.JSONDecodeError, OSError, RuntimeError) as error:
+                    self.close()
+                    if attempt:
+                        raise RuntimeError(f"Pokemon Showdown could not validate the generated team pool: {error}") from error
+        raise RuntimeError("Pokemon Showdown could not validate the generated team pool")
+
+    def close(self) -> None:
+        if self.process is None:
+            return
+        process = self.process
+        self.process = None
+        if self.owner_pid != os.getpid():
+            for stream in (process.stdin, process.stdout, process.stderr):
+                if stream is not None:
+                    stream.close()
+            self.owner_pid = None
+            return
+        if process.stdin is not None:
+            try:
+                process.stdin.close()
+            except BrokenPipeError:
+                pass
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            process.terminate()
+            process.wait(timeout=2)
+        self.owner_pid = None
+
+
+_TEAM_BATCH_VALIDATORS = {}
+_TEAM_BATCH_VALIDATORS_LOCK = Lock()
+
+
+def _get_team_batch_validator(showdown_path: Path, format_id: str) -> TeamBatchValidator:
+    key = (Path(showdown_path).resolve(), format_id)
+    with _TEAM_BATCH_VALIDATORS_LOCK:
+        if key not in _TEAM_BATCH_VALIDATORS:
+            _TEAM_BATCH_VALIDATORS[key] = TeamBatchValidator(*key)
+        return _TEAM_BATCH_VALIDATORS[key]
+
+
+def _close_team_batch_validators() -> None:
+    for validator in _TEAM_BATCH_VALIDATORS.values():
+        validator.close()
+
+
+atexit.register(_close_team_batch_validators)
+
+
+def validate_team_batch(showdown_path: Path, format_id: str, teams: list[str]) -> list[list[str] | None]:
+    return _get_team_batch_validator(showdown_path, format_id).validate(teams)
 
 
 class PooledTeamBuilder(Teambuilder):

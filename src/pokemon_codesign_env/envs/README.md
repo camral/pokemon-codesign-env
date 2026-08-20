@@ -4,7 +4,7 @@ These are the reusable baseline environments for `pokemon-codesign-env`. Each co
 
 | Environment | Opponent policy | Battle format | Random opponent-team source |
 | --- | --- | --- | --- |
-| `RandomPlayerEnv` | `RandomPlayer` | `gen4customgame` | `gen4randombattle` |
+| `RandomPlayerEnv` | `SwitchWeightedRandomPlayer` (20% switch probability when moves are available) | `gen4customgame` | `gen4randombattle` |
 | `MaxBasePowerPlayerEnv` | `MaxBasePowerPlayer` | `gen6ou` | `gen6battlefactory` |
 | `SimpleHeuristicsPlayerEnv` | `SimpleHeuristicsPlayer` | `gen9monotype` | `gen9monotyperandombattle` |
 

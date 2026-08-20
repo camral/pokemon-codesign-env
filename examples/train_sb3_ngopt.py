@@ -302,8 +302,19 @@ def sample_team_population(optimizer, search_config: TeamSearchConfig, populatio
         needed = population_size - len(teams)
         proposed_candidates = [optimizer.ask() for _ in range(needed)]
         proposed_parameters = [decode_ngopt_parameter_values(candidate.value, species_values, nature_values) for candidate in proposed_candidates]
+        unique_proposals = [
+            (candidate, values) for candidate, values in zip(proposed_candidates, proposed_parameters, strict=True)
+            if team_species_are_unique(values)
+        ]
+        for candidate, values in zip(proposed_candidates, proposed_parameters, strict=True):
+            if not team_species_are_unique(values):
+                optimizer.tell(candidate, INVALID_CANDIDATE_LOSS)
+        if not unique_proposals:
+            attempts += needed
+            continue
+        proposed_candidates, proposed_parameters = map(list, zip(*unique_proposals, strict=True))
         proposed_teams = BatchedTeamDesigner.serialize_parameter_values(
-            search_config, proposed_parameters, [seed + attempts + index for index in range(needed)]
+            search_config, proposed_parameters, [seed + attempts + index for index in range(len(proposed_parameters))]
         )
         errors = validate_team_batch(search_config.format.showdown_path, search_config.format.format_id, proposed_teams)
         for candidate, values, team, error in zip(proposed_candidates, proposed_parameters, proposed_teams, errors, strict=True):
@@ -807,6 +818,12 @@ def decode_ngopt_parameter_values(parameter_values: np.ndarray, species_values: 
         f"pokemon_{index}": {"species": species_values[int(parameter_values[index])], "nature": nature_values[int(parameter_values[team_size + index])]}
         for index in range(team_size)
     }
+
+
+def team_species_are_unique(parameter_values: dict) -> bool:
+    """Return whether poke-env can uniquely track every designed Pokemon."""
+    species = [pokemon["species"] for pokemon in parameter_values.values()]
+    return len(species) == len(set(species))
 
 
 def make_control_env(

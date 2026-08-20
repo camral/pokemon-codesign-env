@@ -120,6 +120,23 @@ python examples/train_pokemon_league_sb3_ngopt.py \
 Use `--random-league` instead of `--generation` to sample one League per
 episode while allowing Pokemon from every generation.
 
+To watch the saved controller attempt the full League, leave the Showdown
+server running, open `http://localhost:8000`, and use the same generation and
+difficulty that were used for training:
+
+```bash
+python examples/train_pokemon_league_sb3_ngopt.py \
+  --generation 4 \
+  --difficulty 0 \
+  --watch \
+  --turn-delay 1
+```
+
+The script prints a new direct battle URL for each League trainer. Use
+`--watch-games` for multiple League attempts, or add `--launch-server` to
+manage the local server automatically. Replays are saved under
+`runs/pokemon_league/replays/`.
+
 ## Self-play experiment
 
 `examples/train_self_play_sb3_ngopt.py` performs iterative frozen-policy

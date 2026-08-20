@@ -1,7 +1,10 @@
 import multiprocessing as mp
+import logging
+import time
 import traceback
 import warnings
 from concurrent.futures import ThreadPoolExecutor
+from multiprocessing.connection import wait
 from typing import Any, Callable, Sequence
 
 import gymnasium as gym
@@ -94,31 +97,116 @@ def _sharded_worker(remote, parent_remote, env_fn_wrappers, reset_retries: int) 
 class ShardedVecEnv(VecEnv):
     """Run many I/O-bound environments in a small number of batched processes."""
 
-    def __init__(self, env_fns: list[Callable[[], gym.Env]], envs_per_worker: int = 32, reset_retries: int = 3, start_method: str = "spawn"):
+    def __init__(
+        self, env_fns: list[Callable[[], gym.Env]], envs_per_worker: int = 32, reset_retries: int = 3, start_method: str = "spawn",
+        step_timeout: float = 60.0, step_timeout_reward: float = 0.0,
+    ):
         if not env_fns:
             raise ValueError("ShardedVecEnv requires at least one environment")
         if envs_per_worker < 1:
             raise ValueError("envs_per_worker must be at least one")
         if reset_retries < 1:
             raise ValueError("reset_retries must be at least one")
+        if step_timeout <= 0:
+            raise ValueError("step_timeout must be greater than zero")
         self.waiting = False
         self.closed = False
+        self.step_send_failures = {}
+        self.reset_retries = reset_retries
+        self.step_timeout = step_timeout
+        self.step_timeout_reward = step_timeout_reward
+        self.context = mp.get_context(start_method)
         self.worker_sizes = tuple(min(envs_per_worker, len(env_fns) - offset) for offset in range(0, len(env_fns), envs_per_worker))
-        batches = [env_fns[offset:offset + envs_per_worker] for offset in range(0, len(env_fns), envs_per_worker)]
-        context = mp.get_context(start_method)
-        pipes = [context.Pipe() for _ in batches]
-        self.remotes, work_remotes = zip(*pipes, strict=True)
+        self.worker_starts = tuple(sum(self.worker_sizes[:index]) for index in range(len(self.worker_sizes)))
+        self.env_fn_batches = [
+            [CloudpickleWrapper(env_fn) for env_fn in env_fns[offset:offset + envs_per_worker]]
+            for offset in range(0, len(env_fns), envs_per_worker)
+        ]
+        self.remotes = []
         self.processes = []
-        for work_remote, remote, batch in zip(work_remotes, self.remotes, batches, strict=True):
-            process = context.Process(
-                target=_sharded_worker, args=(work_remote, remote, [CloudpickleWrapper(env_fn) for env_fn in batch], reset_retries), daemon=True
-            )
-            process.start()
-            self.processes.append(process)
-            work_remote.close()
+        for worker_index in range(len(self.env_fn_batches)):
+            self._start_worker(worker_index)
         self.remotes[0].send(("get_spaces", None))
         observation_space, action_space = self._receive(self.remotes[0])
         super().__init__(len(env_fns), observation_space, action_space)
+
+    def _start_worker(self, worker_index: int) -> None:
+        remote, work_remote = self.context.Pipe()
+        process = self.context.Process(
+            target=_sharded_worker, args=(work_remote, remote, self.env_fn_batches[worker_index], self.reset_retries), daemon=True
+        )
+        process.start()
+        work_remote.close()
+        if worker_index == len(self.remotes):
+            self.remotes.append(remote)
+            self.processes.append(process)
+        else:
+            self.remotes[worker_index] = remote
+            self.processes[worker_index] = process
+
+    def _restart_worker(self, worker_index: int, reason: str) -> list:
+        worker_start = self.worker_starts[worker_index]
+        environment_indices = list(range(worker_start, worker_start + self.worker_sizes[worker_index]))
+        process = self.processes[worker_index]
+        logging.getLogger(__name__).warning(
+            "Restarting stalled environment worker %d (pid=%s, environments=%s, reason=%s)",
+            worker_index, process.pid, environment_indices, reason,
+        )
+        reset_results = None
+        for attempt in range(self.reset_retries):
+            try:
+                self.remotes[worker_index].close()
+            except OSError:
+                pass
+            if process.is_alive():
+                process.terminate()
+            process.join(timeout=2)
+            self._start_worker(worker_index)
+            process = self.processes[worker_index]
+            try:
+                self.remotes[worker_index].send(("reset", [(None, {}) for _ in range(self.worker_sizes[worker_index])]))
+                reset_results = self._receive(self.remotes[worker_index], timeout=max(60.0, self.step_timeout))
+                break
+            except (BrokenPipeError, EOFError, OSError, RuntimeError, TimeoutError):
+                if attempt + 1 == self.reset_retries:
+                    raise
+        if reset_results is None:
+            raise RuntimeError(f"Could not restart sharded environment worker {worker_index}")
+        recovered = []
+        for environment_index, (observation, reset_info) in zip(environment_indices, reset_results, strict=True):
+            info = {
+                "TimeLimit.truncated": True, "terminal_observation": observation, "sharded_worker_restarted": True,
+                "sharded_worker_index": worker_index, "environment_index": environment_index, "restart_reason": reason,
+            }
+            recovered.append((observation, self.step_timeout_reward, True, info, reset_info))
+        return recovered
+
+    def _receive_step_workers(self) -> list[list]:
+        results = {
+            worker_index: self._restart_worker(worker_index, reason)
+            for worker_index, reason in self.step_send_failures.items()
+        }
+        pending = set(range(len(self.remotes))) - set(results)
+        self.step_send_failures = {}
+        deadline = time.monotonic() + self.step_timeout
+        while pending:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            remote_indices = {self.remotes[index]: index for index in pending}
+            ready = wait(list(remote_indices), timeout=remaining)
+            if not ready:
+                break
+            for remote in ready:
+                worker_index = remote_indices[remote]
+                pending.remove(worker_index)
+                try:
+                    results[worker_index] = self._receive(remote)
+                except (EOFError, OSError, RuntimeError) as error:
+                    results[worker_index] = self._restart_worker(worker_index, f"worker failure: {error}")
+        for worker_index in sorted(pending):
+            results[worker_index] = self._restart_worker(worker_index, f"step timeout after {self.step_timeout:g}s")
+        return [results[index] for index in range(len(self.remotes))]
 
     @staticmethod
     def _receive(remote, timeout: float | None = None):
@@ -138,13 +226,17 @@ class ShardedVecEnv(VecEnv):
         return batches
 
     def step_async(self, actions: np.ndarray) -> None:
-        for remote, batch in zip(self.remotes, self._split(actions), strict=True):
-            remote.send(("step", batch))
+        self.step_send_failures = {}
+        for worker_index, (remote, batch) in enumerate(zip(self.remotes, self._split(actions), strict=True)):
+            try:
+                remote.send(("step", batch))
+            except (BrokenPipeError, EOFError, OSError) as error:
+                self.step_send_failures[worker_index] = f"could not submit step: {error}"
         self.waiting = True
 
     def step_wait(self) -> VecEnvStepReturn:
         try:
-            results = [result for remote in self.remotes for result in self._receive(remote)]
+            results = [result for worker_results in self._receive_step_workers() for result in worker_results]
         finally:
             self.waiting = False
         observations, rewards, dones, infos, self.reset_infos = zip(*results, strict=True)

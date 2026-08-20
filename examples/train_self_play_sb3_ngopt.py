@@ -188,7 +188,9 @@ def make_training_env(
 
         return make_worker
 
-    return make_vector_env([initialize(rank) for rank in range(num_envs)], vec_env, args.envs_per_worker, args.reset_retries)
+    return make_vector_env(
+        [initialize(rank) for rank in range(num_envs)], vec_env, args.envs_per_worker, args.reset_retries, args.step_timeout, args.step_timeout_reward
+    )
 
 
 def evaluate_controller(model: PPO, env, episodes: int) -> float:

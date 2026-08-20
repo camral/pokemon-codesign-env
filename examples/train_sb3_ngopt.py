@@ -166,6 +166,8 @@ class WandbRLCallback(BaseCallback):
         self.round_index = round_index
         self.started_at = None
         self.completed_episodes = 0
+        self.recovered_environments = 0
+        self.restarted_workers = 0
         self._next_telemetry = None
         self._last_telemetry_at = None
         self._last_telemetry_timesteps = 0
@@ -190,6 +192,11 @@ class WandbRLCallback(BaseCallback):
         dones = self.locals.get("dones")
         if dones is not None:
             self.completed_episodes += int(np.sum(dones))
+        infos = self.locals.get("infos") or ()
+        recovered_infos = [info for info in infos if info.get("sharded_worker_restarted")]
+        if recovered_infos:
+            self.recovered_environments += len(recovered_infos)
+            self.restarted_workers += len({info["sharded_worker_index"] for info in recovered_infos})
         interval = self.wandb_logger.telemetry_log_interval
         if self.num_timesteps >= self._next_telemetry:
             now = time.monotonic()
@@ -202,6 +209,7 @@ class WandbRLCallback(BaseCallback):
                 "rl/rollout/fps": fps, "rl/rollout/average_fps": self.num_timesteps / elapsed,
                 "rl/rollout/completed_episodes": self.completed_episodes,
                 "rl/rollout/buffer_fill": ((self.num_timesteps - 1) % rollout_size + 1) / rollout_size,
+                "rl/recovery/environments": self.recovered_environments, "rl/recovery/worker_restarts": self.restarted_workers,
             }
             self.wandb_logger.log_training(self.label, self.evaluation, self.num_timesteps, metrics, self.round_index)
             self._last_telemetry_at = now
@@ -369,6 +377,8 @@ def add_compute_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--envs-per-worker", type=int, default=32)
     parser.add_argument("--reset-retries", type=int, default=3)
     parser.add_argument("--challenge-timeout", type=float, default=60.0)
+    parser.add_argument("--step-timeout", type=float, default=60.0, help="Restart a stalled sharded worker after this many seconds.")
+    parser.add_argument("--step-timeout-reward", type=float, default=0.0, help="Reward returned for transitions recovered after a worker timeout.")
     parser.add_argument("--rollout-steps", type=int, default=256)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--profile-gpu", action="store_true")
@@ -391,7 +401,7 @@ def validate_compute_arguments(args: argparse.Namespace) -> None:
     """Reject invalid parallelism and PPO buffer configurations early."""
     defaults = {"envs_per_worker": 32, "telemetry_log_interval": 1_000, "showdown_shards": 1}
     for name in (
-        "num_envs", "envs_per_worker", "reset_retries", "challenge_timeout", "rollout_steps", "batch_size", "gpu_log_interval",
+        "num_envs", "envs_per_worker", "reset_retries", "challenge_timeout", "step_timeout", "rollout_steps", "batch_size", "gpu_log_interval",
         "telemetry_log_interval",
         "showdown_shards", "ppo_timesteps", "evaluation_episodes",
     ):
@@ -445,10 +455,18 @@ def make_team(search_config, parameter_values: dict, seed: int, validate_teams: 
     return team
 
 
-def make_vector_env(env_factories, vec_env: str, envs_per_worker: int = 32, reset_retries: int = 3):
+def make_vector_env(
+    env_factories, vec_env: str, envs_per_worker: int = 32, reset_retries: int = 3, step_timeout: float = 60.0,
+    step_timeout_reward: float = 0.0,
+):
     """Create a monitored in-process or process-parallel SB3 vector environment."""
     if vec_env == "sharded":
-        return VecMonitor(ShardedVecEnv(env_factories, envs_per_worker=envs_per_worker, reset_retries=reset_retries, start_method="spawn"))
+        return VecMonitor(
+            ShardedVecEnv(
+                env_factories, envs_per_worker=envs_per_worker, reset_retries=reset_retries, start_method="spawn",
+                step_timeout=step_timeout, step_timeout_reward=step_timeout_reward,
+            )
+        )
     vector_class = DummyVecEnv if vec_env == "dummy" else SubprocVecEnv
     kwargs = {} if vec_env == "dummy" else {"start_method": "spawn"}
     return VecMonitor(vector_class(env_factories, **kwargs))
@@ -847,7 +865,9 @@ def make_control_training_env(
 
         return initialize
 
-    return make_vector_env([make_env(rank) for rank in range(num_envs)], vec_env, args.envs_per_worker, args.reset_retries)
+    return make_vector_env(
+        [make_env(rank) for rank in range(num_envs)], vec_env, args.envs_per_worker, args.reset_retries, args.step_timeout, args.step_timeout_reward
+    )
 
 
 def evaluate_controller(model: PPO, env, episodes: int) -> float:

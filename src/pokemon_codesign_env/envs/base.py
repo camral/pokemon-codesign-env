@@ -6,11 +6,13 @@ from pathlib import Path
 import numpy as np
 from gymnasium import spaces
 from poke_env.battle import AbstractBattle
+from poke_env.data import GenData
 from poke_env.environment import SingleAgentWrapper, SinglesEnv
 from poke_env.teambuilder import Teambuilder
 
 from pokemon_codesign_env.configs import FormatConfig, ObservationConfig
 from pokemon_codesign_env.observations import HumanVisibleBattleEncoder
+from pokemon_codesign_env.protocol import install_gen4_protocol_adapter
 from pokemon_codesign_env.showdown import validate_team
 
 
@@ -19,7 +21,11 @@ class _UnexpectedEffectWarningFilter(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:
         message = record.getMessage()
-        return not (record.name == "poke-env" and message.startswith("Unexpected effect '") and "Effect.UNKNOWN will be used instead." in message)
+        known_effect = any(f"'{effect}'" in message for effect in ("BEAT_UP", "MUD_SPORT", "WATER_SPORT"))
+        return not (
+            record.name == "poke-env" and known_effect and message.startswith("Unexpected effect '")
+            and "Effect.UNKNOWN will be used instead." in message
+        )
 
 
 logging.getLogger("poke-env").addFilter(_UnexpectedEffectWarningFilter())
@@ -57,6 +63,9 @@ class HumanVisibleSinglesEnv(SinglesEnv):
     def __init__(self, observation_encoder: HumanVisibleBattleEncoder, **kwargs):
         self.observation_encoder = observation_encoder
         super().__init__(**kwargs)
+        if GenData.from_format(kwargs.get("battle_format", "gen8randombattle")).gen == 4:
+            install_gen4_protocol_adapter(self.agent1)
+            install_gen4_protocol_adapter(self.agent2)
         self.observation_spaces = {agent: observation_encoder.observation_space for agent in self.possible_agents}
 
     def calc_reward(self, battle: AbstractBattle) -> float:

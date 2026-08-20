@@ -58,6 +58,54 @@ EVALUATION_OPPONENT_NAMES = {
 }
 
 
+def begin_startup_stage(args: argparse.Namespace, wandb_logger, stage: str, **metrics) -> float:
+    """Report the beginning of a potentially slow startup stage."""
+    if args.verbose:
+        details = " ".join(f"{name}={value}" for name, value in metrics.items())
+        print(f"startup_stage={stage} status=starting{f' {details}' if details else ''}", flush=True)
+    wandb_logger.log_system(f"{stage}_starting", **metrics)
+    return time.monotonic()
+
+
+def finish_startup_stage(args: argparse.Namespace, wandb_logger, stage: str, started_at: float, **metrics) -> None:
+    """Report completion and elapsed time for one startup stage."""
+    duration = time.monotonic() - started_at
+    if args.verbose:
+        details = " ".join(f"{name}={value}" for name, value in metrics.items())
+        print(f"startup_stage={stage} status=ready duration_s={duration:.3f}{f' {details}' if details else ''}", flush=True)
+    wandb_logger.log_system(f"{stage}_ready", startup_stage_s=duration, **metrics)
+
+
+@contextmanager
+def startup_stage(args: argparse.Namespace, wandb_logger, stage: str, **metrics):
+    """Time and report a synchronous startup stage."""
+    started_at = begin_startup_stage(args, wandb_logger, stage, **metrics)
+    try:
+        yield
+    except Exception:
+        if args.verbose:
+            print(f"startup_stage={stage} status=failed duration_s={time.monotonic() - started_at:.3f}", flush=True)
+        wandb_logger.log_system(f"{stage}_failed", startup_stage_s=time.monotonic() - started_at, **metrics)
+        raise
+    finish_startup_stage(args, wandb_logger, stage, started_at, **metrics)
+
+
+class InitialResetCallback(BaseCallback):
+    """Report when SB3 finishes its implicit first vector reset."""
+
+    def __init__(self, args: argparse.Namespace, wandb_logger, started_at: float):
+        super().__init__()
+        self.args = args
+        self.wandb_logger = wandb_logger
+        self.started_at = started_at
+
+    def _on_training_start(self) -> None:
+        finish_startup_stage(self.args, self.wandb_logger, "initial_reset", self.started_at, environments=self.model.n_envs)
+
+    def _on_step(self) -> bool:
+        return True
+
+
 class GPUStatsCallback(BaseCallback):
     """Periodically report CUDA utilization and allocator memory."""
 
@@ -388,10 +436,12 @@ def server_configuration_for(args: argparse.Namespace, environment_index: int):
 
 def make_training_callback(
     args: argparse.Namespace, wandb_logger=None, label: str | None = None,
-    evaluation: int | None = None, round_index: int | None = None, team_optimizer_callback=None,
+    evaluation: int | None = None, round_index: int | None = None, team_optimizer_callback=None, initial_reset_started_at: float | None = None,
 ):
     """Create accelerator profiling and W&B callbacks for one PPO learner."""
     callbacks = []
+    if initial_reset_started_at is not None:
+        callbacks.append(InitialResetCallback(args, wandb_logger, initial_reset_started_at))
     if wandb_logger is not None and wandb_logger.run is not None:
         callbacks.append(WandbRLCallback(wandb_logger, label, evaluation, round_index))
     if args.profile_gpu:
@@ -883,8 +933,9 @@ def run_experiment(
     args: argparse.Namespace, environment_class: type[BaselineOpponentEnv], format_config: FormatConfig, wandb_logger: WandbEvaluationLogger
 ) -> None:
     """Run training or watch mode against an available Showdown server."""
-    learner_config = make_search_config(format_config)
-    observation_encoder = HumanVisibleBattleEncoder.from_showdown(format_config, observation_config=OBSERVATION_CONFIG)
+    with startup_stage(args, wandb_logger, "observation_setup"):
+        learner_config = make_search_config(format_config)
+        observation_encoder = HumanVisibleBattleEncoder.from_showdown(format_config, observation_config=OBSERVATION_CONFIG)
     if args.watch:
         watch_saved_controller(
             args.output_dir,
@@ -903,22 +954,22 @@ def run_experiment(
     pool_size = args.random_team_pool_size or (max(args.num_envs, 1_024) if args.vec_env == "sharded" else 0)
     opponent_team_pool = None
     if pool_size:
-        wandb_logger.log_system("team_pool_generating", team_pool_size=pool_size)
-        pool_started_at = time.monotonic()
-        opponent_team_pool = RandomTeamPool.from_showdown(format_config.showdown_path, environment_class.OPPONENT_TEAM_FORMAT, pool_size)
-        wandb_logger.log_system("team_pool_ready", team_pool_size=pool_size, team_pool_startup_s=time.monotonic() - pool_started_at)
+        with startup_stage(args, wandb_logger, "opponent_team_pool", teams=pool_size):
+            opponent_team_pool = RandomTeamPool.from_showdown(format_config.showdown_path, environment_class.OPPONENT_TEAM_FORMAT, pool_size)
 
     rollout_size = args.num_envs * args.rollout_steps
     rollout_count = (args.ppo_timesteps + rollout_size - 1) // rollout_size
     population_evaluations = rollout_population_evaluations(args.ppo_timesteps, args.num_envs, args.rollout_steps)
-    parametrization = make_ngopt_parameterization(learner_config)
-    parametrization.random_state.seed(args.seed)
-    optimizer = ng.optimizers.NGOpt(parametrization=parametrization, budget=population_evaluations, num_workers=args.num_envs)
-    candidates, parameters, teams = sample_team_population(optimizer, learner_config, args.num_envs, args.seed)
-    training_env = make_control_training_env(
-        environment_class, learner_config, parameters[0], observation_encoder, args, args.seed,
-        opponent_team_pool=opponent_team_pool, learner_teams=teams,
-    )
+    with startup_stage(args, wandb_logger, "learner_population", teams=args.num_envs):
+        parametrization = make_ngopt_parameterization(learner_config)
+        parametrization.random_state.seed(args.seed)
+        optimizer = ng.optimizers.NGOpt(parametrization=parametrization, budget=population_evaluations, num_workers=args.num_envs)
+        candidates, parameters, teams = sample_team_population(optimizer, learner_config, args.num_envs, args.seed)
+    with startup_stage(args, wandb_logger, "environment_workers", environments=args.num_envs):
+        training_env = make_control_training_env(
+            environment_class, learner_config, parameters[0], observation_encoder, args, args.seed,
+            opponent_team_pool=opponent_team_pool, learner_teams=teams,
+        )
     team_optimizer_callback = RolloutTeamOptimizerCallback(
         optimizer, learner_config, candidates, parameters, args.seed, args.ppo_timesteps, wandb_logger, "codesign"
     )
@@ -933,7 +984,10 @@ def run_experiment(
             f"num_envs={args.num_envs} vec_env={args.vec_env} rollout_steps={args.rollout_steps} batch_size={args.batch_size}"
         )
     try:
-        callback = make_training_callback(args, wandb_logger, "codesign", 0, team_optimizer_callback=team_optimizer_callback)
+        initial_reset_started_at = begin_startup_stage(args, wandb_logger, "initial_reset", environments=args.num_envs)
+        callback = make_training_callback(
+            args, wandb_logger, "codesign", 0, team_optimizer_callback=team_optimizer_callback, initial_reset_started_at=initial_reset_started_at
+        )
         model.learn(total_timesteps=args.ppo_timesteps, callback=callback)
     finally:
         training_env.close()

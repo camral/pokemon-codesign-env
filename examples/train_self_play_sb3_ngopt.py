@@ -7,7 +7,6 @@ embodiment, then promotes the final NGOpt recommendation.
 
 import argparse
 import json
-import time
 from pathlib import Path
 
 import nevergrad as ng
@@ -30,6 +29,7 @@ if __package__:
         RolloutTeamOptimizerCallback,
         WandbEvaluationLogger,
         add_compute_arguments,
+        begin_startup_stage,
         collect_evaluation_replays,
         decode_ngopt_parameter_values,
         evaluation_account_configurations,
@@ -45,6 +45,7 @@ if __package__:
         sample_team_population,
         server_configuration_for,
         showdown_cluster,
+        startup_stage,
         validate_compute_arguments,
         validate_device,
         wandb_config,
@@ -56,6 +57,7 @@ else:
         RolloutTeamOptimizerCallback,
         WandbEvaluationLogger,
         add_compute_arguments,
+        begin_startup_stage,
         collect_evaluation_replays,
         decode_ngopt_parameter_values,
         evaluation_account_configurations,
@@ -71,6 +73,7 @@ else:
         sample_team_population,
         server_configuration_for,
         showdown_cluster,
+        startup_stage,
         validate_compute_arguments,
         validate_device,
         wandb_config,
@@ -235,10 +238,8 @@ def main() -> None:
         pool_size = args.random_team_pool_size or (max(args.num_envs, 1_024) if args.vec_env == "sharded" else 0)
         random_team_pool = None
         if pool_size:
-            wandb_logger.log_system("team_pool_generating", team_pool_size=pool_size)
-            pool_started_at = time.monotonic()
-            random_team_pool = RandomTeamPool.from_showdown(format_config.showdown_path, RandomPlayerEnv.OPPONENT_TEAM_FORMAT, pool_size)
-            wandb_logger.log_system("team_pool_ready", team_pool_size=pool_size, team_pool_startup_s=time.monotonic() - pool_started_at)
+            with startup_stage(args, wandb_logger, "opponent_team_pool", teams=pool_size):
+                random_team_pool = RandomTeamPool.from_showdown(format_config.showdown_path, RandomPlayerEnv.OPPONENT_TEAM_FORMAT, pool_size)
         rollout_size = args.num_envs * args.rollout_steps
         rollout_count = (args.ppo_timesteps + rollout_size - 1) // rollout_size
         population_evaluations = rollout_population_evaluations(args.ppo_timesteps, args.num_envs, args.rollout_steps)
@@ -246,27 +247,24 @@ def main() -> None:
             champion_team_pool = None
             champion_pool_size = args.learner_team_pool_size or (max(args.num_envs, 1_024) if args.vec_env == "sharded" else 0)
             if champion_parameters is not None and champion_pool_size:
-                wandb_logger.log_system("champion_team_pool_generating", round_index=round_index, team_pool_size=champion_pool_size)
-                pool_started_at = time.monotonic()
-                champion_designer = make_team(search_config, champion_parameters, args.seed + round_index * population_evaluations)
-                champion_designer.yield_team()
-                champion_designer.validate_teams = False
-                champion_team_pool = RandomTeamPool.from_generator(
-                    search_config.format.showdown_path, search_config.format.format_id, champion_pool_size, champion_designer.yield_team
-                )
-                wandb_logger.log_system(
-                    "champion_team_pool_ready", round_index=round_index, team_pool_size=champion_pool_size,
-                    team_pool_startup_s=time.monotonic() - pool_started_at,
-                )
-            parametrization = make_ngopt_parameterization(search_config)
-            parametrization.random_state.seed(args.seed + round_index)
-            optimizer = ng.optimizers.NGOpt(parametrization=parametrization, budget=population_evaluations, num_workers=args.num_envs)
+                with startup_stage(args, wandb_logger, "champion_team_pool", teams=champion_pool_size, round=round_index + 1):
+                    champion_designer = make_team(search_config, champion_parameters, args.seed + round_index * population_evaluations)
+                    champion_designer.yield_team()
+                    champion_designer.validate_teams = False
+                    champion_team_pool = RandomTeamPool.from_generator(
+                        search_config.format.showdown_path, search_config.format.format_id, champion_pool_size, champion_designer.yield_team
+                    )
             population_seed = args.seed + round_index * population_evaluations
-            candidates, parameters, teams = sample_team_population(optimizer, search_config, args.num_envs, population_seed)
-            training_env = make_training_env(
-                parameters[0], search_config, observation_encoder, champion_controller, champion_parameters, args, population_seed,
-                random_team_pool=random_team_pool, champion_team_pool=champion_team_pool, learner_teams=teams,
-            )
+            with startup_stage(args, wandb_logger, "learner_population", teams=args.num_envs, round=round_index + 1):
+                parametrization = make_ngopt_parameterization(search_config)
+                parametrization.random_state.seed(args.seed + round_index)
+                optimizer = ng.optimizers.NGOpt(parametrization=parametrization, budget=population_evaluations, num_workers=args.num_envs)
+                candidates, parameters, teams = sample_team_population(optimizer, search_config, args.num_envs, population_seed)
+            with startup_stage(args, wandb_logger, "environment_workers", environments=args.num_envs, round=round_index + 1):
+                training_env = make_training_env(
+                    parameters[0], search_config, observation_encoder, champion_controller, champion_parameters, args, population_seed,
+                    random_team_pool=random_team_pool, champion_team_pool=champion_team_pool, learner_teams=teams,
+                )
             label = f"round-{round_index + 1}-codesign"
             team_optimizer_callback = RolloutTeamOptimizerCallback(
                 optimizer, search_config, candidates, parameters, population_seed, args.ppo_timesteps, wandb_logger, label, round_index
@@ -276,9 +274,14 @@ def main() -> None:
                 gamma=0.99, ent_coef=0.01, seed=population_seed, device=args.device, verbose=int(args.verbose),
             )
             try:
+                initial_reset_started_at = begin_startup_stage(
+                    args, wandb_logger, "initial_reset", environments=args.num_envs, round=round_index + 1
+                )
                 round_model.learn(
                     total_timesteps=args.ppo_timesteps,
-                    callback=make_training_callback(args, wandb_logger, label, 0, round_index, team_optimizer_callback),
+                    callback=make_training_callback(
+                        args, wandb_logger, label, 0, round_index, team_optimizer_callback, initial_reset_started_at
+                    ),
                 )
             finally:
                 training_env.close()

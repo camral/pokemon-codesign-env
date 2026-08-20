@@ -29,6 +29,7 @@ if __package__:
         RolloutTeamOptimizerCallback,
         WandbEvaluationLogger,
         add_compute_arguments,
+        begin_startup_stage,
         collect_evaluation_replays,
         decode_ngopt_parameter_values,
         evaluation_account_configurations,
@@ -44,6 +45,7 @@ if __package__:
         sample_team_population,
         server_configuration_for,
         showdown_cluster,
+        startup_stage,
         validate_compute_arguments,
         validate_device,
         wandb_config,
@@ -55,6 +57,7 @@ else:
         RolloutTeamOptimizerCallback,
         WandbEvaluationLogger,
         add_compute_arguments,
+        begin_startup_stage,
         collect_evaluation_replays,
         decode_ngopt_parameter_values,
         evaluation_account_configurations,
@@ -70,6 +73,7 @@ else:
         sample_team_population,
         server_configuration_for,
         showdown_cluster,
+        startup_stage,
         validate_compute_arguments,
         validate_device,
         wandb_config,
@@ -290,11 +294,13 @@ def main() -> None:
         rollout_size = args.num_envs * args.rollout_steps
         rollout_count = (args.ppo_timesteps + rollout_size - 1) // rollout_size
         population_evaluations = rollout_population_evaluations(args.ppo_timesteps, args.num_envs, args.rollout_steps)
-        parametrization = make_ngopt_parameterization(search_config)
-        parametrization.random_state.seed(args.seed)
-        optimizer = ng.optimizers.NGOpt(parametrization=parametrization, budget=population_evaluations, num_workers=args.num_envs)
-        candidates, parameters, teams = sample_team_population(optimizer, search_config, args.num_envs, args.seed)
-        training_env = make_league_training_env(search_config, parameters[0], observation_encoder, args, args.seed, learner_teams=teams)
+        with startup_stage(args, wandb_logger, "learner_population", teams=args.num_envs):
+            parametrization = make_ngopt_parameterization(search_config)
+            parametrization.random_state.seed(args.seed)
+            optimizer = ng.optimizers.NGOpt(parametrization=parametrization, budget=population_evaluations, num_workers=args.num_envs)
+            candidates, parameters, teams = sample_team_population(optimizer, search_config, args.num_envs, args.seed)
+        with startup_stage(args, wandb_logger, "environment_workers", environments=args.num_envs):
+            training_env = make_league_training_env(search_config, parameters[0], observation_encoder, args, args.seed, learner_teams=teams)
         team_optimizer_callback = RolloutTeamOptimizerCallback(
             optimizer, search_config, candidates, parameters, args.seed, args.ppo_timesteps, wandb_logger, "league-codesign"
         )
@@ -303,7 +309,11 @@ def main() -> None:
             gamma=0.99, ent_coef=0.01, seed=args.seed, device=args.device, verbose=int(args.verbose),
         )
         try:
-            callback = make_training_callback(args, wandb_logger, "league-codesign", 0, team_optimizer_callback=team_optimizer_callback)
+            initial_reset_started_at = begin_startup_stage(args, wandb_logger, "initial_reset", environments=args.num_envs)
+            callback = make_training_callback(
+                args, wandb_logger, "league-codesign", 0, team_optimizer_callback=team_optimizer_callback,
+                initial_reset_started_at=initial_reset_started_at,
+            )
             model.learn(total_timesteps=args.ppo_timesteps, callback=callback)
         finally:
             training_env.close()

@@ -33,6 +33,7 @@ if __package__:
         decode_ngopt_parameter_values,
         evaluation_account_configurations,
         evaluation_replay_dir,
+        get_ngopt_parameter_choices,
         make_ngopt_parameterization,
         make_search_config,
         make_team,
@@ -58,6 +59,7 @@ else:
         decode_ngopt_parameter_values,
         evaluation_account_configurations,
         evaluation_replay_dir,
+        get_ngopt_parameter_choices,
         make_ngopt_parameterization,
         make_search_config,
         make_team,
@@ -306,7 +308,7 @@ def main() -> None:
         finally:
             training_env.close()
 
-        recommendation = decode_ngopt_parameter_values(optimizer.provide_recommendation().value)
+        recommendation = decode_ngopt_parameter_values(optimizer.provide_recommendation().value, *get_ngopt_parameter_choices(search_config))
         replay_dir = evaluation_replay_dir(args.output_dir, "final")
         previous_replays = set(replay_dir.glob("*.html"))
         evaluation_accounts = evaluation_account_configurations("LeagueOpponent", 0)

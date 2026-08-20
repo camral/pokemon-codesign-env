@@ -34,6 +34,7 @@ if __package__:
         decode_ngopt_parameter_values,
         evaluation_account_configurations,
         evaluation_replay_dir,
+        get_ngopt_parameter_choices,
         make_ngopt_parameterization,
         make_search_config,
         make_team,
@@ -59,6 +60,7 @@ else:
         decode_ngopt_parameter_values,
         evaluation_account_configurations,
         evaluation_replay_dir,
+        get_ngopt_parameter_choices,
         make_ngopt_parameterization,
         make_search_config,
         make_team,
@@ -282,7 +284,7 @@ def main() -> None:
                 training_env.close()
 
             previous_champion_parameters = champion_parameters
-            champion_parameters = decode_ngopt_parameter_values(optimizer.provide_recommendation().value)
+            champion_parameters = decode_ngopt_parameter_values(optimizer.provide_recommendation().value, *get_ngopt_parameter_choices(search_config))
             learner_team = make_team(search_config, champion_parameters, population_seed + population_evaluations)
             champion_team = None if previous_champion_parameters is None else make_team(
                 search_config, previous_champion_parameters, population_seed + population_evaluations + 1

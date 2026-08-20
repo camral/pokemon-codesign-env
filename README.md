@@ -12,20 +12,25 @@ Potential environment setups:
  - Self-play, where the agent competes against its own previous versions to iteratively improve both its team design and battle strategy.
  - Multi-agent co-design, where multiple agents design their own teams and strategies, competing against each other in a shared environment.
 
-## Minimal SB3 + NGOpt experiment
+## Installation
 
-The example in `examples/train_sb3_ngopt.py` uses NGOpt to choose the species
-and nature of all six Pokemon. It trains a fresh masked PPO controller for each
-candidate using `RandomPlayerEnv` by default. Each baseline environment gives
-the opponent a newly generated random team for every battle.
+Pokemon Showdown is included as a Git submodule. After cloning this repository,
+initialize the submodule and install its Node.js dependencies:
 
-Install the reinforcement-learning dependencies:
+```bash
+git submodule update --init --recursive
+npm --prefix pokemon-showdown ci
+```
+
+Pokemon Showdown requires Node.js 16 or newer. Install this Python project and
+its reinforcement-learning dependencies from the repository root:
 
 ```bash
 pip install -e '.[rl]'
 ```
 
-Install the packaged Pokemon League formats into the bundled Showdown server:
+Finally, install and build the packaged Pokemon League formats in the bundled
+Showdown server:
 
 ```bash
 pokemon-codesign-install-showdown pokemon-showdown
@@ -35,6 +40,13 @@ This uses Showdown's supported `config/custom-formats.ts` extension point and
 builds the server. It does not patch the Showdown simulator. If the server
 already has custom formats, the command preserves them and explains the import
 that must be added manually.
+
+## Minimal SB3 + NGOpt experiment
+
+The example in `examples/train_sb3_ngopt.py` uses NGOpt to choose the species
+and nature of all six Pokemon. It trains a fresh masked PPO controller for each
+candidate using `RandomPlayerEnv` by default. Each baseline environment gives
+the opponent a newly generated random team for every battle.
 
 Start the bundled Pokemon Showdown server in another terminal:
 

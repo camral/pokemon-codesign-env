@@ -119,6 +119,7 @@ python examples/train_sb3_ngopt.py \
   --ng-workers 1 \
   --random-team-pool-size 8192 \
   --profile-gpu \
+  --progress \
   --gpu-log-interval 8192 \
   --telemetry-log-interval 1024 \
   --wandb-project pokemon-codesign \
@@ -176,11 +177,11 @@ candidate returns and incumbent progress, candidate duration, wall time, the
 current recommendation, optional GPU statistics, and promoted controller
 checkpoints. Scale telemetry starts before the first PPO update and includes
 environment readiness, startup time, vector steps, buffer fill, completed
-episodes, and transitions per second. Replay recording remains evaluation-only, and every candidate is
-evaluated by one environment even when training uses multiple vector workers.
-Each completed evaluation battle is displayed in W&B as an HTML Pokemon
-Showdown replay and uploaded in a downloadable `evaluation-replays` artifact. A
-Pokemon League evaluation can therefore log up to five replays per episode.
+episodes, recent FPS, average FPS, and transitions per second. Replay recording
+remains evaluation-only, and every candidate is evaluated by one environment
+even when training uses multiple vector workers. One representative evaluation
+battle is displayed in W&B as an HTML Pokemon Showdown replay and uploaded in a
+downloadable `evaluation-replays` artifact.
 Use `--wandb-mode offline` to save locally for later `wandb sync`, or
 `--wandb-mode disabled` to exercise the same configuration without logging.
 Optional run organization is available through `--wandb-name` and
@@ -199,6 +200,9 @@ generation and ruleset.
 
 `--verbose` prints each candidate, SB3's PPO rollout metrics, and evaluation
 progress. Omit it for one summary line per candidate.
+`--progress` displays a tqdm bar for every PPO training run with recent and
+average environment-transition FPS. It can be combined with `--verbose` and
+W&B logging.
 
 The controller uses a compact human-visible battle observation: its own complete
 team, revealed opponent information, known moves and PP, HP, status, stat

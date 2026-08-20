@@ -119,9 +119,12 @@ class WandbRLCallback(BaseCallback):
         self.started_at = None
         self.completed_episodes = 0
         self._next_telemetry = None
+        self._last_telemetry_at = None
+        self._last_telemetry_timesteps = 0
 
     def _on_training_start(self) -> None:
         self.started_at = time.monotonic()
+        self._last_telemetry_at = self.started_at
         self._next_telemetry = self.model.n_envs
         self.wandb_logger.log_system(
             "rollout_started", label=self.label, candidate=self.evaluation, ready_environments=self.model.n_envs,
@@ -141,14 +144,20 @@ class WandbRLCallback(BaseCallback):
             self.completed_episodes += int(np.sum(dones))
         interval = self.wandb_logger.telemetry_log_interval
         if self.num_timesteps >= self._next_telemetry:
-            elapsed = max(time.monotonic() - self.started_at, 1e-9)
+            now = time.monotonic()
+            elapsed = max(now - self.started_at, 1e-9)
+            interval_elapsed = max(now - self._last_telemetry_at, 1e-9)
+            fps = (self.num_timesteps - self._last_telemetry_timesteps) / interval_elapsed
             rollout_size = self.model.n_envs * self.model.n_steps
             metrics = {
                 "rl/rollout/vector_steps": self.n_calls, "rl/rollout/transitions_per_second": self.num_timesteps / elapsed,
+                "rl/rollout/fps": fps, "rl/rollout/average_fps": self.num_timesteps / elapsed,
                 "rl/rollout/completed_episodes": self.completed_episodes,
                 "rl/rollout/buffer_fill": ((self.num_timesteps - 1) % rollout_size + 1) / rollout_size,
             }
             self.wandb_logger.log_training(self.label, self.evaluation, self.num_timesteps, metrics, self.round_index)
+            self._last_telemetry_at = now
+            self._last_telemetry_timesteps = self.num_timesteps
             self._next_telemetry = self.num_timesteps + interval
         return True
 
@@ -157,6 +166,47 @@ class WandbRLCallback(BaseCallback):
 
     def _on_training_end(self) -> None:
         self._log()
+
+
+class TrainingProgressCallback(BaseCallback):
+    """Display transition progress with recent and average environment FPS."""
+
+    def __init__(self, total_timesteps: int, label: str, position: int = 0):
+        super().__init__()
+        self.requested_timesteps = total_timesteps
+        self.label = label
+        self.position = position
+        self.progress = None
+        self.started_at = None
+        self._last_measurement_at = None
+        self._last_measurement_timesteps = 0
+
+    def _on_training_start(self) -> None:
+        from tqdm.auto import tqdm
+
+        rollout_size = self.model.n_envs * self.model.n_steps
+        total_timesteps = ((self.requested_timesteps + rollout_size - 1) // rollout_size) * rollout_size
+        self.started_at = time.monotonic()
+        self._last_measurement_at = self.started_at
+        self.progress = tqdm(total=total_timesteps, desc=self.label, unit="step", position=self.position, dynamic_ncols=True)
+
+    def _on_step(self) -> bool:
+        increment = self.num_timesteps - self.progress.n
+        if increment > 0:
+            self.progress.update(increment)
+        now = time.monotonic()
+        measurement_elapsed = now - self._last_measurement_at
+        if measurement_elapsed >= 1.0 or self.num_timesteps >= self.progress.total:
+            fps = (self.num_timesteps - self._last_measurement_timesteps) / max(measurement_elapsed, 1e-9)
+            average_fps = self.num_timesteps / max(now - self.started_at, 1e-9)
+            self.progress.set_postfix(fps=f"{fps:,.0f}", average_fps=f"{average_fps:,.0f}", refresh=False)
+            self._last_measurement_at = now
+            self._last_measurement_timesteps = self.num_timesteps
+        return True
+
+    def _on_training_end(self) -> None:
+        if self.progress is not None:
+            self.progress.close()
 
 
 def add_compute_arguments(parser: argparse.ArgumentParser) -> None:
@@ -171,6 +221,7 @@ def add_compute_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--ng-workers", type=int, default=1)
     parser.add_argument("--profile-gpu", action="store_true")
+    parser.add_argument("--progress", action="store_true", help="Display tqdm training progress with recent and average environment FPS.")
     parser.add_argument("--gpu-log-interval", type=int, default=1_000)
     parser.add_argument("--telemetry-log-interval", type=int, default=1_000)
     parser.add_argument("--showdown-host", default=SHOWDOWN_HOST)
@@ -264,6 +315,8 @@ def make_training_callback(
         callbacks.append(WandbRLCallback(wandb_logger, label, evaluation, round_index))
     if args.profile_gpu:
         callbacks.append(GPUStatsCallback(args.gpu_log_interval, wandb_logger, label, evaluation, round_index))
+    if args.progress:
+        callbacks.append(TrainingProgressCallback(args.ppo_timesteps, label or "training", 0 if evaluation is None else evaluation % args.ng_workers))
     if not callbacks:
         return None
     return callbacks[0] if len(callbacks) == 1 else CallbackList(callbacks)

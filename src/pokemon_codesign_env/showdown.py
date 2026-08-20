@@ -1,5 +1,6 @@
 import json
 import subprocess
+from functools import lru_cache
 from pathlib import Path
 
 
@@ -51,23 +52,17 @@ def get_format_rules(format_id: str, showdown_path: Path) -> dict[str, object]:
     return json.loads(result.stdout)
 
 
-def get_parameter_values(
-    format_id: str,
-    param: str,
-    showdown_path: Path,
-    species: str | None = None,
-    generations_allowed: tuple[int, ...] | None = None,
-    types_allowed: tuple[str, ...] | None = None,
-) -> list[str | None]:
-    """Return concrete Pokemon Showdown values for a team parameter."""
+@lru_cache(maxsize=None)
+def _get_parameter_catalog(
+    format_id: str, showdown_path: str, generations_allowed: tuple[int, ...], types_allowed: tuple[str, ...]
+) -> dict:
+    """Load every configurable value for a format in one Showdown process."""
     script = """
         const { Dex } = require('./dist/sim/dex');
         const { TeamValidator } = require('./dist/sim/team-validator');
 
         const formatId = process.argv[1];
-        const param = process.argv[2];
-        const requestedSpecies = process.argv[3];
-        const filters = JSON.parse(process.argv[4]);
+        const filters = JSON.parse(process.argv[2]);
         const format = Dex.formats.get(formatId);
         if (!format.exists) {
             throw new Error(`Unknown Pokemon Showdown format: ${formatId}`);
@@ -86,91 +81,66 @@ def get_parameter_values(
             (!types.length || species.types.some(type => types.includes(type.toLowerCase())))
         );
 
-        let speciesPool = dex.species.all().filter(isEligibleSpecies);
-        if (requestedSpecies) {
-            const selectedSpecies = dex.species.get(requestedSpecies);
-            speciesPool = isEligibleSpecies(selectedSpecies) ? [selectedSpecies] : [];
-        }
-
-        let values;
-        if (param === 'species') {
-            values = speciesPool.map(species => species.name);
-        } else if (param === 'moves') {
-            const moveIds = new Set();
-            for (const species of speciesPool) {
-                for (const learnsetData of dex.species.getFullLearnset(species.id)) {
-                    for (const moveId of Object.keys(learnsetData.learnset)) moveIds.add(moveId);
-                }
-            }
-            values = Array.from(moveIds)
-                .map(moveId => dex.moves.get(moveId))
-                .filter(move => (
-                    move.exists && move.gen <= dex.gen &&
-                    !validator.checkMove({ name: 'Pokemon' }, move, {})
-                ))
-                .map(move => move.name);
-        } else if (param === 'ability') {
-            const abilityNames = new Set();
-            for (const species of speciesPool) {
-                for (const ability of Object.values(species.abilities)) abilityNames.add(ability);
-            }
-            values = Array.from(abilityNames)
-                .map(abilityName => dex.abilities.get(abilityName))
-                .filter(ability => ability.exists && !validator.checkAbility({ name: 'Pokemon' }, ability, {}))
-                .map(ability => ability.name);
-            if (dex.gen <= 2) values = [null];
-        } else if (param === 'item') {
-            values = dex.items.all()
+        const speciesPool = dex.species.all().filter(isEligibleSpecies);
+        const legalTypes = dex.types.all().filter(type => type.exists && !type.isNonstandard).map(type => type.name);
+        const supportsTera = (
+            dex.gen === 9 && !dex.currentMod.startsWith('champions') && !validator.ruleTable.has('terastalclause')
+        ) || validator.ruleTable.has('bonustypemod');
+        const catalog = {
+            species: speciesPool.map(species => species.name),
+            aliases: {},
+            moves: {},
+            ability: {},
+            gender: {},
+            tera_type: {},
+            item: dex.items.all()
                 .filter(item => item.exists && !validator.checkItem({ name: 'Pokemon' }, item, {}))
-                .map(item => item.name);
-            if (!validator.checkItem({ name: 'Pokemon' }, dex.items.get(''), {})) values.unshift(null);
-        } else if (param === 'nature') {
-            values = dex.natures.all()
+                .map(item => item.name),
+            nature: dex.gen <= 2 ? [null] : dex.natures.all()
                 .filter(nature => nature.exists && !validator.checkNature({ name: 'Pokemon' }, nature, {}))
-                .map(nature => nature.name);
-            if (dex.gen <= 2) values = [null];
-        } else if (param === 'gender') {
-            const genders = new Set();
-            for (const species of speciesPool) {
-                if (species.gender) {
-                    genders.add(species.gender);
-                } else {
-                    genders.add('M');
-                    genders.add('F');
-                }
+                .map(nature => nature.name),
+        };
+        if (!validator.checkItem({ name: 'Pokemon' }, dex.items.get(''), {})) catalog.item.unshift(null);
+
+        for (const species of speciesPool) {
+            catalog.aliases[species.id] = species.name;
+            catalog.aliases[species.name.toLowerCase()] = species.name;
+
+            const moveIds = new Set();
+            for (const learnsetData of dex.species.getFullLearnset(species.id)) {
+                for (const moveId of Object.keys(learnsetData.learnset)) moveIds.add(moveId);
             }
-            values = Array.from(genders);
-        } else if (param === 'tera_type') {
-            if (requestedSpecies && !speciesPool.length) {
-                values = [];
-            } else if (!((dex.gen === 9 && !dex.currentMod.startsWith('champions') &&
-                !validator.ruleTable.has('terastalclause')) ||
-                validator.ruleTable.has('bonustypemod'))) {
-                values = [null];
-            } else if (requestedSpecies && speciesPool[0]?.requiredTeraType) {
-                values = [speciesPool[0].requiredTeraType];
+            catalog.moves[species.name] = Array.from(moveIds)
+                .map(moveId => dex.moves.get(moveId))
+                .filter(move => move.exists && move.gen <= dex.gen && !validator.checkMove({ name: 'Pokemon' }, move, {}))
+                .map(move => move.name)
+                .sort((left, right) => left.localeCompare(right));
+
+            if (dex.gen <= 2) {
+                catalog.ability[species.name] = [null];
             } else {
-                values = dex.types.all()
-                    .filter(type => type.exists && !type.isNonstandard)
-                    .map(type => type.name);
-                if (requestedSpecies && speciesPool[0]) {
-                    const defaultType = speciesPool[0].types[0];
-                    values = [defaultType, ...values.filter(type => type !== defaultType)];
-                }
+                catalog.ability[species.name] = Array.from(new Set(Object.values(species.abilities)))
+                    .map(abilityName => dex.abilities.get(abilityName))
+                    .filter(ability => ability.exists && !validator.checkAbility({ name: 'Pokemon' }, ability, {}))
+                    .map(ability => ability.name);
             }
-        } else {
-            throw new Error(`Unsupported Pokemon parameter: ${param}`);
+            catalog.gender[species.name] = species.gender ? [species.gender] : ['M', 'F'];
+            if (!supportsTera) {
+                catalog.tera_type[species.name] = [null];
+            } else if (species.requiredTeraType) {
+                catalog.tera_type[species.name] = [species.requiredTeraType];
+            } else {
+                catalog.tera_type[species.name] = [species.types[0], ...legalTypes.filter(type => type !== species.types[0])];
+            }
         }
 
-        if (!requestedSpecies || !['ability', 'tera_type'].includes(param)) {
-            values.sort((left, right) => (left || '').localeCompare(right || ''));
-        }
-        console.log(JSON.stringify(values));
+        for (const param of ['species', 'item', 'nature']) catalog[param].sort((left, right) => (left || '').localeCompare(right || ''));
+        console.log(JSON.stringify(catalog));
     """
 
-    filters = {"generations": list(generations_allowed or ()), "types": list(types_allowed or ())}
+    filters = {"generations": list(generations_allowed), "types": list(types_allowed)}
     result = subprocess.run(
-        ["node", "-e", script, format_id, param, species or "", json.dumps(filters)],
+        ["node", "-e", script, format_id, json.dumps(filters)],
         cwd=showdown_path,
         capture_output=True,
         check=False,
@@ -178,9 +148,38 @@ def get_parameter_values(
     )
     if result.returncode:
         message = result.stderr.strip() or result.stdout.strip()
-        raise RuntimeError(f"Could not resolve Pokemon Showdown values for {param!r}: {message}")
+        raise RuntimeError(f"Could not resolve Pokemon Showdown parameter catalog: {message}")
 
     return json.loads(result.stdout)
+
+
+def get_parameter_values(
+    format_id: str,
+    param: str,
+    showdown_path: Path,
+    species: str | None = None,
+    generations_allowed: tuple[int, ...] | None = None,
+    types_allowed: tuple[str, ...] | None = None,
+) -> list[str | None]:
+    """Return cached concrete Pokemon Showdown values for a team parameter."""
+    showdown_path = str(Path(showdown_path).resolve())
+    generations_allowed = tuple(sorted(set(generations_allowed or ())))
+    types_allowed = tuple(sorted({pokemon_type.lower() for pokemon_type in types_allowed or ()}))
+    catalog = _get_parameter_catalog(format_id, showdown_path, generations_allowed, types_allowed)
+
+    if param == "species" and species is not None:
+        canonical_species = catalog["aliases"].get(species, catalog["aliases"].get(species.lower()))
+        return [] if canonical_species is None else [canonical_species]
+    if param in {"species", "item", "nature"}:
+        return list(catalog[param])
+    if param not in {"moves", "ability", "gender", "tera_type"}:
+        raise ValueError(f"Unsupported Pokemon parameter: {param}")
+    if species is not None:
+        canonical_species = catalog["aliases"].get(species, catalog["aliases"].get(species.lower()))
+        return [] if canonical_species is None else list(catalog[param][canonical_species])
+
+    values = {value for species_values in catalog[param].values() for value in species_values}
+    return sorted(values, key=lambda value: value or "")
 
 
 def validate_team(format_id: str, packed_team: str, showdown_path: Path) -> None:

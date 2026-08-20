@@ -25,6 +25,7 @@ from pokemon_codesign_env.team_pool import RandomTeamPool
 if __package__:
     from examples.train_sb3_ngopt import (
         MaskedActorCriticPolicy,
+        PeriodicEvaluationCallback,
         RetryingTeamDesigner,
         RolloutTeamOptimizerCallback,
         WandbEvaluationLogger,
@@ -53,6 +54,7 @@ if __package__:
 else:
     from train_sb3_ngopt import (
         MaskedActorCriticPolicy,
+        PeriodicEvaluationCallback,
         RetryingTeamDesigner,
         RolloutTeamOptimizerCallback,
         WandbEvaluationLogger,
@@ -209,6 +211,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--self-play-rounds", type=int, default=3)
     parser.add_argument("--ppo-timesteps", type=int, default=2048)
     parser.add_argument("--evaluation-episodes", type=int, default=8)
+    parser.add_argument(
+        "--evaluation-interval-rollouts", type=int, default=0,
+        help="Evaluate after every N completed PPO rollouts in each self-play round; zero disables periodic evaluation.",
+    )
     parser.add_argument("--seed", type=int, default=0)
     add_compute_arguments(parser)
     parser.add_argument("--opponent-device", default="cpu")
@@ -273,6 +279,43 @@ def main() -> None:
                 MaskedActorCriticPolicy, training_env, n_steps=args.rollout_steps, batch_size=args.batch_size, learning_rate=3e-4,
                 gamma=0.99, ent_coef=0.01, seed=population_seed, device=args.device, verbose=int(args.verbose),
             )
+
+            def evaluate_periodically(current_model: PPO, completed_rollouts: int, timesteps: int) -> None:
+                recommendation = decode_ngopt_parameter_values(optimizer.provide_recommendation().value, *get_ngopt_parameter_choices(search_config))
+                evaluation_seed = population_seed + population_evaluations + completed_rollouts
+                learner_team = make_team(search_config, recommendation, evaluation_seed)
+                opponent_team = None if champion_parameters is None else make_team(search_config, champion_parameters, evaluation_seed + 1)
+                evaluation_label = f"round-{round_index + 1}-rollout-{completed_rollouts}"
+                replay_dir = evaluation_replay_dir(args.output_dir, evaluation_label)
+                previous_replays = set(replay_dir.glob("*.html"))
+                opponent_name = "RandomPlayer" if champion_controller is None else "SelfPlayOpponent"
+                evaluation_index = round_index * rollout_count + completed_rollouts
+                evaluation_accounts = evaluation_account_configurations(opponent_name, evaluation_index)
+                evaluation_env = make_env(
+                    learner_team, observation_encoder, champion_controller, opponent_team, args.opponent_device,
+                    random_team=None if random_team_pool is None else random_team_pool.builder(evaluation_seed), save_replays=str(replay_dir),
+                    server_configuration=server_configuration_for(args, args.num_envs), challenge_timeout=args.challenge_timeout,
+                    account_configuration1=evaluation_accounts[0], account_configuration2=evaluation_accounts[1],
+                )
+                if args.verbose:
+                    print(
+                        f"status=evaluating round={round_index + 1} rollout={completed_rollouts} timesteps={timesteps} "
+                        f"episodes={args.evaluation_episodes}", flush=True,
+                    )
+                try:
+                    mean_return = evaluate_controller(current_model, evaluation_env, args.evaluation_episodes)
+                finally:
+                    evaluation_env.close()
+                replay_paths = collect_evaluation_replays(replay_dir, previous_replays)
+                evaluation_metrics = {
+                    "evaluation/round": round_index + 1, "evaluation/rollout": completed_rollouts, "evaluation/timesteps": timesteps,
+                }
+                wandb_logger.log(evaluation_label, evaluation_index, mean_return, recommendation, replay_paths, **evaluation_metrics)
+                print(f"evaluation_round={round_index + 1} rollout={completed_rollouts} timesteps={timesteps} mean_return={mean_return:.3f}", flush=True)
+
+            periodic_evaluation_callback = None
+            if args.evaluation_interval_rollouts:
+                periodic_evaluation_callback = PeriodicEvaluationCallback(args.evaluation_interval_rollouts, rollout_count, evaluate_periodically)
             try:
                 initial_reset_started_at = begin_startup_stage(
                     args, wandb_logger, "initial_reset", environments=args.num_envs, round=round_index + 1
@@ -280,7 +323,8 @@ def main() -> None:
                 round_model.learn(
                     total_timesteps=args.ppo_timesteps,
                     callback=make_training_callback(
-                        args, wandb_logger, label, 0, round_index, team_optimizer_callback, initial_reset_started_at
+                        args, wandb_logger, label, 0, round_index, team_optimizer_callback=team_optimizer_callback,
+                        periodic_evaluation_callback=periodic_evaluation_callback, initial_reset_started_at=initial_reset_started_at,
                     ),
                 )
             finally:

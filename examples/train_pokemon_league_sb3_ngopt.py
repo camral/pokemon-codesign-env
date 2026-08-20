@@ -25,6 +25,7 @@ from pokemon_codesign_env.team_pool import RandomTeamPool
 if __package__:
     from examples.train_sb3_ngopt import (
         MaskedActorCriticPolicy,
+        PeriodicEvaluationCallback,
         RetryingTeamDesigner,
         RolloutTeamOptimizerCallback,
         WandbEvaluationLogger,
@@ -53,6 +54,7 @@ if __package__:
 else:
     from train_sb3_ngopt import (
         MaskedActorCriticPolicy,
+        PeriodicEvaluationCallback,
         RetryingTeamDesigner,
         RolloutTeamOptimizerCallback,
         WandbEvaluationLogger,
@@ -241,6 +243,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--difficulty", type=int, choices=(0, 1), default=0)
     parser.add_argument("--ppo-timesteps", type=int, default=2048)
     parser.add_argument("--evaluation-episodes", type=int, default=4)
+    parser.add_argument(
+        "--evaluation-interval-rollouts", type=int, default=0,
+        help="Evaluate after every N completed PPO rollouts; zero disables periodic evaluation.",
+    )
     parser.add_argument("--seed", type=int, default=0)
     add_compute_arguments(parser)
     parser.add_argument("--output-dir", type=Path, default=Path("runs/pokemon_league"))
@@ -308,11 +314,39 @@ def main() -> None:
             MaskedActorCriticPolicy, training_env, n_steps=args.rollout_steps, batch_size=args.batch_size, learning_rate=3e-4,
             gamma=0.99, ent_coef=0.01, seed=args.seed, device=args.device, verbose=int(args.verbose),
         )
+
+        def evaluate_periodically(current_model: PPO, completed_rollouts: int, timesteps: int) -> None:
+            recommendation = decode_ngopt_parameter_values(optimizer.provide_recommendation().value, *get_ngopt_parameter_choices(search_config))
+            label = f"rollout-{completed_rollouts}"
+            replay_dir = evaluation_replay_dir(args.output_dir, label)
+            previous_replays = set(replay_dir.glob("*.html"))
+            evaluation_accounts = evaluation_account_configurations("LeagueOpponent", completed_rollouts)
+            evaluation_seed = args.seed + population_evaluations + completed_rollouts
+            evaluation_env = make_league_env(
+                make_team(search_config, recommendation, evaluation_seed), observation_encoder,
+                None if args.random_league else args.generation, args.random_league, args.difficulty,
+                server_configuration=server_configuration_for(args, args.num_envs), challenge_timeout=args.challenge_timeout,
+                save_replays=str(replay_dir), account_configuration1=evaluation_accounts[0], account_configuration2=evaluation_accounts[1],
+            )
+            if args.verbose:
+                print(f"status=evaluating rollout={completed_rollouts} timesteps={timesteps} episodes={args.evaluation_episodes}", flush=True)
+            try:
+                mean_return = evaluate_controller(current_model, evaluation_env, args.evaluation_episodes)
+            finally:
+                evaluation_env.close()
+            replay_paths = collect_evaluation_replays(replay_dir, previous_replays)
+            evaluation_metrics = {"evaluation/timesteps": timesteps, "evaluation/rollout": completed_rollouts}
+            wandb_logger.log(label, completed_rollouts, mean_return, recommendation, replay_paths, **evaluation_metrics)
+            print(f"evaluation_rollout={completed_rollouts} timesteps={timesteps} mean_return={mean_return:.3f}", flush=True)
+
+        periodic_evaluation_callback = None
+        if args.evaluation_interval_rollouts:
+            periodic_evaluation_callback = PeriodicEvaluationCallback(args.evaluation_interval_rollouts, rollout_count, evaluate_periodically)
         try:
             initial_reset_started_at = begin_startup_stage(args, wandb_logger, "initial_reset", environments=args.num_envs)
             callback = make_training_callback(
                 args, wandb_logger, "league-codesign", 0, team_optimizer_callback=team_optimizer_callback,
-                initial_reset_started_at=initial_reset_started_at,
+                periodic_evaluation_callback=periodic_evaluation_callback, initial_reset_started_at=initial_reset_started_at,
             )
             model.learn(total_timesteps=args.ppo_timesteps, callback=callback)
         finally:

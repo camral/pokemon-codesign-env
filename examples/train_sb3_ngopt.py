@@ -257,6 +257,32 @@ class TrainingProgressCallback(BaseCallback):
             self.progress.close()
 
 
+class PeriodicEvaluationCallback(BaseCallback):
+    """Run single-environment evaluation after configured PPO updates."""
+
+    def __init__(self, interval_rollouts: int, total_rollouts: int, evaluator):
+        super().__init__()
+        self.interval_rollouts = interval_rollouts
+        self.total_rollouts = total_rollouts
+        self.evaluator = evaluator
+        self.last_evaluation_rollout = 0
+
+    def _on_step(self) -> bool:
+        return True
+
+    def _on_rollout_start(self) -> None:
+        rollout_size = self.model.n_envs * self.model.n_steps
+        completed_rollouts = self.num_timesteps // rollout_size
+        should_skip = (
+            completed_rollouts == 0 or completed_rollouts >= self.total_rollouts or completed_rollouts % self.interval_rollouts
+            or completed_rollouts == self.last_evaluation_rollout
+        )
+        if should_skip:
+            return
+        self.evaluator(self.model, completed_rollouts, self.num_timesteps)
+        self.last_evaluation_rollout = completed_rollouts
+
+
 def sample_team_population(optimizer, search_config: TeamSearchConfig, population_size: int, seed: int):
     """Ask NGOpt for one valid packed team per environment."""
     species_values, nature_values = get_ngopt_parameter_choices(search_config)
@@ -383,6 +409,8 @@ def validate_compute_arguments(args: argparse.Namespace) -> None:
     for name in ("random_team_pool_size", "learner_team_pool_size"):
         if getattr(args, name, 0) < 0:
             raise ValueError(f"--{name.replace('_', '-')} cannot be negative")
+    if getattr(args, "evaluation_interval_rollouts", 0) < 0:
+        raise ValueError("--evaluation-interval-rollouts cannot be negative")
     ShowdownClusterConfig(
         getattr(args, "showdown_host", SHOWDOWN_HOST), getattr(args, "showdown_base_port", SHOWDOWN_PORT), getattr(args, "showdown_shards", 1)
     )
@@ -436,7 +464,8 @@ def server_configuration_for(args: argparse.Namespace, environment_index: int):
 
 def make_training_callback(
     args: argparse.Namespace, wandb_logger=None, label: str | None = None,
-    evaluation: int | None = None, round_index: int | None = None, team_optimizer_callback=None, initial_reset_started_at: float | None = None,
+    evaluation: int | None = None, round_index: int | None = None, team_optimizer_callback=None, periodic_evaluation_callback=None,
+    initial_reset_started_at: float | None = None,
 ):
     """Create accelerator profiling and W&B callbacks for one PPO learner."""
     callbacks = []
@@ -450,6 +479,8 @@ def make_training_callback(
         callbacks.append(TrainingProgressCallback(args.ppo_timesteps, label or "training", 0))
     if team_optimizer_callback is not None:
         callbacks.append(team_optimizer_callback)
+    if periodic_evaluation_callback is not None:
+        callbacks.append(periodic_evaluation_callback)
     if not callbacks:
         return None
     return callbacks[0] if len(callbacks) == 1 else CallbackList(callbacks)
@@ -916,6 +947,10 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ppo-timesteps", type=int, default=2048)
     parser.add_argument("--evaluation-episodes", type=int, default=8)
+    parser.add_argument(
+        "--evaluation-interval-rollouts", type=int, default=0,
+        help="Evaluate after every N completed PPO rollouts; zero disables periodic evaluation.",
+    )
     parser.add_argument("--seed", type=int, default=0)
     add_compute_arguments(parser)
     parser.add_argument("--output-dir", type=Path, default=Path("runs/minimal_codesign"))
@@ -983,10 +1018,39 @@ def run_experiment(
             f"rollouts={rollout_count} teams_per_rollout={args.num_envs} ng_evaluations={population_evaluations} device={args.device} "
             f"num_envs={args.num_envs} vec_env={args.vec_env} rollout_steps={args.rollout_steps} batch_size={args.batch_size}"
         )
+
+    def evaluate_periodically(current_model: PPO, completed_rollouts: int, timesteps: int) -> None:
+        recommendation = decode_ngopt_parameter_values(optimizer.provide_recommendation().value, *get_ngopt_parameter_choices(learner_config))
+        label = f"rollout-{completed_rollouts}"
+        replay_dir = evaluation_replay_dir(args.output_dir, label)
+        previous_replays = set(replay_dir.glob("*.html"))
+        evaluation_accounts = evaluation_account_configurations(EVALUATION_OPPONENT_NAMES[environment_class], completed_rollouts)
+        evaluation_seed = args.seed + population_evaluations + completed_rollouts
+        evaluation_env = make_control_env(
+            environment_class, make_team(learner_config, recommendation, evaluation_seed), observation_encoder,
+            opponent_team=None if opponent_team_pool is None else opponent_team_pool.builder(evaluation_seed),
+            server_configuration=server_configuration_for(args, args.num_envs), challenge_timeout=args.challenge_timeout, save_replays=str(replay_dir),
+            account_configuration1=evaluation_accounts[0], account_configuration2=evaluation_accounts[1],
+        )
+        if args.verbose:
+            print(f"status=evaluating rollout={completed_rollouts} timesteps={timesteps} episodes={args.evaluation_episodes}", flush=True)
+        try:
+            mean_return = evaluate_controller(current_model, evaluation_env, args.evaluation_episodes)
+        finally:
+            evaluation_env.close()
+        replay_paths = collect_evaluation_replays(replay_dir, previous_replays)
+        evaluation_metrics = {"evaluation/timesteps": timesteps, "evaluation/rollout": completed_rollouts}
+        wandb_logger.log(label, completed_rollouts, mean_return, recommendation, replay_paths, **evaluation_metrics)
+        print(f"evaluation_rollout={completed_rollouts} timesteps={timesteps} mean_return={mean_return:.3f}", flush=True)
+
+    periodic_evaluation_callback = None
+    if args.evaluation_interval_rollouts:
+        periodic_evaluation_callback = PeriodicEvaluationCallback(args.evaluation_interval_rollouts, rollout_count, evaluate_periodically)
     try:
         initial_reset_started_at = begin_startup_stage(args, wandb_logger, "initial_reset", environments=args.num_envs)
         callback = make_training_callback(
-            args, wandb_logger, "codesign", 0, team_optimizer_callback=team_optimizer_callback, initial_reset_started_at=initial_reset_started_at
+            args, wandb_logger, "codesign", 0, team_optimizer_callback=team_optimizer_callback, periodic_evaluation_callback=periodic_evaluation_callback,
+            initial_reset_started_at=initial_reset_started_at,
         )
         model.learn(total_timesteps=args.ppo_timesteps, callback=callback)
     finally:

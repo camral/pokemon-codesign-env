@@ -1,3 +1,4 @@
+import asyncio
 import subprocess
 from pathlib import Path
 
@@ -51,6 +52,15 @@ class HumanVisibleSinglesEnv(SinglesEnv):
 
     def embed_battle(self, battle: AbstractBattle) -> dict[str, np.ndarray]:
         return self.observation_encoder.encode(battle)
+
+    def close(self, force: bool = True, wait: bool = True):
+        super().close(force=force, wait=wait)
+        for agent in (self.agent1, self.agent2):
+            close_task = asyncio.run_coroutine_threadsafe(agent.ps_client._stop_listening(), agent.ps_client.loop)
+            try:
+                close_task.result(timeout=10)
+            except Exception:
+                close_task.cancel()
 
 
 class BaselineOpponentEnv(SingleAgentWrapper):

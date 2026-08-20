@@ -21,6 +21,8 @@ from threading import Lock
 import nevergrad as ng
 import numpy as np
 import torch
+from poke_env.data import GenData
+from poke_env.data.normalize import to_id_str
 from poke_env.ps_client import AccountConfiguration
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback, CallbackList
@@ -304,10 +306,10 @@ def sample_team_population(optimizer, search_config: TeamSearchConfig, populatio
         proposed_parameters = [decode_ngopt_parameter_values(candidate.value, species_values, nature_values) for candidate in proposed_candidates]
         unique_proposals = [
             (candidate, values) for candidate, values in zip(proposed_candidates, proposed_parameters, strict=True)
-            if team_species_are_unique(values)
+            if team_species_are_trackable(values, search_config.format.generation)
         ]
         for candidate, values in zip(proposed_candidates, proposed_parameters, strict=True):
-            if not team_species_are_unique(values):
+            if not team_species_are_trackable(values, search_config.format.generation):
                 optimizer.tell(candidate, INVALID_CANDIDATE_LOSS)
         if not unique_proposals:
             attempts += needed
@@ -820,10 +822,16 @@ def decode_ngopt_parameter_values(parameter_values: np.ndarray, species_values: 
     }
 
 
-def team_species_are_unique(parameter_values: dict) -> bool:
-    """Return whether poke-env can uniquely track every designed Pokemon."""
+def team_species_are_trackable(parameter_values: dict, generation: int) -> bool:
+    """Return whether poke-env's fuzzy identifier matching can distinguish every Pokemon."""
+    pokedex = GenData.from_gen(generation).pokedex
     species = [pokemon["species"] for pokemon in parameter_values.values()]
-    return len(species) == len(set(species))
+    base_species = [to_id_str(pokedex.get(to_id_str(name), {}).get("baseSpecies", name)) for name in species]
+    for index, base_name in enumerate(base_species):
+        for other_index, other_name in enumerate(species):
+            if index != other_index and (base_name == to_id_str(other_name) or base_name in {to_id_str(part) for part in other_name.split("-")}):
+                return False
+    return True
 
 
 def make_control_env(

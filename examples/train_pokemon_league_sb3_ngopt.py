@@ -12,27 +12,29 @@ import time
 from pathlib import Path
 
 import nevergrad as ng
-import numpy as np
 from poke_env.ps_client import AccountConfiguration
 from stable_baselines3 import PPO
 from stable_baselines3.common.monitor import Monitor
 
-from pokemon_codesign_env.configs import FormatConfig, ObservationConfig
+from pokemon_codesign_env.configs import FormatConfig
 from pokemon_codesign_env.envs import PokemonLeagueEnv, get_pokemon_league
 from pokemon_codesign_env.observations import HumanVisibleBattleEncoder
 from pokemon_codesign_env.team_pool import RandomTeamPool
 
 if __package__:
-    from examples.train_sb3_ngopt import (
+    from examples.utils import (
         MaskedActorCriticPolicy,
         PeriodicEvaluationCallback,
+        OBSERVATION_CONFIG,
         RetryingTeamDesigner,
         RolloutTeamOptimizerCallback,
         WandbEvaluationLogger,
+        TEAM_SIZE,
         add_compute_arguments,
         begin_startup_stage,
         collect_evaluation_replays,
         decode_ngopt_parameter_values,
+        evaluate_controller,
         evaluation_account_configurations,
         evaluation_replay_dir,
         get_ngopt_parameter_choices,
@@ -52,16 +54,19 @@ if __package__:
         wandb_config,
     )
 else:
-    from train_sb3_ngopt import (
+    from utils import (
         MaskedActorCriticPolicy,
         PeriodicEvaluationCallback,
+        OBSERVATION_CONFIG,
         RetryingTeamDesigner,
         RolloutTeamOptimizerCallback,
         WandbEvaluationLogger,
+        TEAM_SIZE,
         add_compute_arguments,
         begin_startup_stage,
         collect_evaluation_replays,
         decode_ngopt_parameter_values,
+        evaluate_controller,
         evaluation_account_configurations,
         evaluation_replay_dir,
         get_ngopt_parameter_choices,
@@ -80,10 +85,6 @@ else:
         validate_device,
         wandb_config,
     )
-
-TEAM_SIZE = 6
-OBSERVATION_CONFIG = ObservationConfig(team_size=TEAM_SIZE)
-
 
 def make_league_env(
     team: RetryingTeamDesigner,
@@ -148,21 +149,6 @@ def make_league_training_env(
     return make_vector_env(
         [make_env(rank) for rank in range(num_envs)], vec_env, args.envs_per_worker, args.reset_retries, args.step_timeout, args.step_timeout_reward
     )
-
-
-def evaluate_controller(model: PPO, env, episodes: int) -> float:
-    """Return the mean full-League episode return."""
-    episode_returns = []
-    for _ in range(episodes):
-        observation, _ = env.reset()
-        terminated = truncated = False
-        episode_return = 0.0
-        while not terminated and not truncated:
-            action, _ = model.predict(observation, deterministic=True)
-            observation, reward, terminated, truncated, _ = env.step(action)
-            episode_return += float(reward)
-        episode_returns.append(episode_return)
-    return float(np.mean(episode_returns))
 
 
 def watch_saved_controller(

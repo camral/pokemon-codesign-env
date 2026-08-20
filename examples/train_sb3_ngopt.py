@@ -607,6 +607,7 @@ class MaskedActorCriticPolicy(ActorCriticPolicy):
         return (self.pi_features_extractor(observations), self.vf_features_extractor(observations))
 
     def get_distribution(self, observations):
+        self._action_mask = observations["action_mask"]
         features = self.pi_features_extractor(observations)
         latent_policy = self.mlp_extractor.forward_actor(features)
         return self._get_action_dist_from_latent(latent_policy)
@@ -618,8 +619,12 @@ class MaskedActorCriticPolicy(ActorCriticPolicy):
 
     def _get_action_dist_from_latent(self, latent_policy):
         action_logits = self.action_net(latent_policy)
-        mask = torch.where(self._action_mask == 1, 0.0, float("-inf"))
-        return self.action_dist.proba_distribution(action_logits=action_logits + mask)
+        valid_actions = self._action_mask == 1
+        no_legal_actions = ~valid_actions.any(dim=-1)
+        if no_legal_actions.any():
+            valid_actions = valid_actions.clone()
+            valid_actions[no_legal_actions, 0] = True
+        return self.action_dist.proba_distribution(action_logits=action_logits.masked_fill(~valid_actions, float("-inf")))
 
 
 def make_search_config(format_config: FormatConfig) -> TeamSearchConfig:

@@ -104,7 +104,10 @@ class BaselineOpponentEnv(SingleAgentWrapper):
 
     @staticmethod
     def _structured(observation):
-        return {**observation["observation"], "action_mask": np.asarray(observation["action_mask"], dtype=np.int8)}
+        action_mask = np.asarray(observation["action_mask"], dtype=np.int8).copy()
+        if not action_mask.any():
+            action_mask[0] = 1
+        return {**observation["observation"], "action_mask": action_mask}
 
     def reset(self, *, seed=None, options=None):
         observation, info = super().reset(seed=seed, options=options)

@@ -31,6 +31,7 @@ if __package__:
         WandbEvaluationLogger,
         add_compute_arguments,
         collect_evaluation_replays,
+        evaluation_account_configurations,
         evaluation_replay_dir,
         evaluate_vector_controller,
         make_ngopt_parameterization,
@@ -54,6 +55,7 @@ else:
         WandbEvaluationLogger,
         add_compute_arguments,
         collect_evaluation_replays,
+        evaluation_account_configurations,
         evaluation_replay_dir,
         evaluate_vector_controller,
         make_ngopt_parameterization,
@@ -140,6 +142,8 @@ def make_training_env(
     num_envs: int | None = None,
     vec_env: str | None = None,
     save_replays: bool | str = False,
+    account_configuration1=None,
+    account_configuration2=None,
 ):
     """Create vectorized bootstrap or frozen-champion workers."""
     num_envs = num_envs or args.num_envs
@@ -164,6 +168,8 @@ def make_training_env(
                 save_replays=save_replays,
                 server_configuration=server_configuration_for(args, rank),
                 challenge_timeout=args.challenge_timeout,
+                account_configuration1=account_configuration1,
+                account_configuration2=account_configuration2,
             )
 
         return make_worker
@@ -244,17 +250,21 @@ def evaluate_candidate(
     )
     replay_dir = evaluation_replay_dir(args.output_dir, f"round_{round_index + 1}_candidate_{evaluation + 1}")
     previous_replays = set(replay_dir.glob("*.html"))
+    opponent_name = "RandomPlayer" if champion_controller is None else "SelfPlayOpponent"
+    evaluation_accounts = evaluation_account_configurations(opponent_name, evaluation, args.ng_workers > 1)
     if args.ng_workers > 1:
         evaluation_env = make_training_env(
             parameters, search_config, observation_encoder, champion_controller, champion_parameters, args,
             seed + args.num_envs, random_team_pool=random_team_pool, champion_team_pool=champion_team_pool,
             num_envs=1, vec_env="subproc", save_replays=str(replay_dir),
+            account_configuration1=evaluation_accounts[0], account_configuration2=evaluation_accounts[1],
         )
     else:
         evaluation_env = make_env(
             learner_team, observation_encoder, champion_controller, champion_team, args.opponent_device,
             random_team=None if random_team_pool is None else random_team_pool.builder(seed + args.num_envs),
             save_replays=str(replay_dir), server_configuration=server_configuration_for(args, args.num_envs), challenge_timeout=args.challenge_timeout,
+            account_configuration1=evaluation_accounts[0], account_configuration2=evaluation_accounts[1],
         )
     try:
         model = PPO(

@@ -29,6 +29,7 @@ if __package__:
         WandbEvaluationLogger,
         add_compute_arguments,
         collect_evaluation_replays,
+        evaluation_account_configurations,
         evaluation_replay_dir,
         evaluate_vector_controller,
         make_ngopt_parameterization,
@@ -52,6 +53,7 @@ else:
         WandbEvaluationLogger,
         add_compute_arguments,
         collect_evaluation_replays,
+        evaluation_account_configurations,
         evaluation_replay_dir,
         evaluate_vector_controller,
         make_ngopt_parameterization,
@@ -103,6 +105,8 @@ def make_league_training_env(
     num_envs: int | None = None,
     vec_env: str | None = None,
     save_replays: bool | str = False,
+    account_configuration1: AccountConfiguration | None = None,
+    account_configuration2: AccountConfiguration | None = None,
 ):
     """Create independently seeded League workers for PPO data collection."""
     num_envs = num_envs or args.num_envs
@@ -119,6 +123,8 @@ def make_league_training_env(
                 server_configuration=server_configuration_for(args, rank),
                 challenge_timeout=args.challenge_timeout,
                 save_replays=save_replays,
+                account_configuration1=account_configuration1,
+                account_configuration2=account_configuration2,
             )
 
         return initialize
@@ -181,15 +187,18 @@ def evaluate_candidate(
     )
     replay_dir = evaluation_replay_dir(args.output_dir, f"candidate_{evaluation + 1}")
     previous_replays = set(replay_dir.glob("*.html"))
+    evaluation_accounts = evaluation_account_configurations("LeagueOpponent", evaluation, args.ng_workers > 1)
     if args.ng_workers > 1:
         evaluation_env = make_league_training_env(
-            search_config, parameter_values, observation_encoder, args, seed + args.num_envs, num_envs=1, vec_env="subproc", save_replays=str(replay_dir)
+            search_config, parameter_values, observation_encoder, args, seed + args.num_envs, num_envs=1, vec_env="subproc", save_replays=str(replay_dir),
+            account_configuration1=evaluation_accounts[0], account_configuration2=evaluation_accounts[1],
         )
     else:
         evaluation_env = make_league_env(
             make_team(search_config, parameter_values, seed + args.num_envs), observation_encoder,
             None if args.random_league else args.generation, args.random_league, args.difficulty,
             server_configuration=server_configuration_for(args, args.num_envs), challenge_timeout=args.challenge_timeout, save_replays=str(replay_dir),
+            account_configuration1=evaluation_accounts[0], account_configuration2=evaluation_accounts[1],
         )
     try:
         model = PPO(

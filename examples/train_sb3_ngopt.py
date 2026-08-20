@@ -51,6 +51,11 @@ SHOWDOWN_HOST = "127.0.0.1"
 SHOWDOWN_PORT = 8000
 SERVER_STARTUP_TIMEOUT = 120.0
 ENVIRONMENTS = {"random": RandomPlayerEnv, "max-base-power": MaxBasePowerPlayerEnv, "simple-heuristics": SimpleHeuristicsPlayerEnv}
+EVALUATION_OPPONENT_NAMES = {
+    RandomPlayerEnv: "RandomPlayer",
+    MaxBasePowerPlayerEnv: "MaxPowerPlayer",
+    SimpleHeuristicsPlayerEnv: "SimpleHeuristic",
+}
 
 
 class GPUStatsCallback(BaseCallback):
@@ -272,12 +277,18 @@ def evaluation_replay_dir(output_dir: Path, label: str) -> Path:
 
 
 def collect_evaluation_replays(replay_dir: Path, previous_replays: set[Path]) -> tuple[Path, ...]:
-    """Return one newly created HTML replay per Showdown battle."""
+    """Return one representative replay for an evaluation checkpoint."""
     unique_replays = {}
     for replay_path in sorted(set(replay_dir.glob("*.html")) - previous_replays):
         battle_name = replay_path.name.split(" - ", 1)[-1]
         unique_replays.setdefault(battle_name, replay_path)
-    return tuple(unique_replays.values())
+    return tuple(list(unique_replays.values())[:1])
+
+
+def evaluation_account_configurations(opponent_name: str, evaluation: int, parallel: bool = False) -> tuple[AccountConfiguration, AccountConfiguration]:
+    """Give a saved evaluation replay meaningful, collision-safe player names."""
+    suffix = f"{evaluation + 1:X}" if parallel else ""
+    return AccountConfiguration(f"TrainingAgent{suffix}", None), AccountConfiguration(f"{opponent_name}{suffix}", None)
 
 
 class WandbEvaluationLogger:
@@ -310,8 +321,8 @@ class WandbEvaluationLogger:
         if self.run is None:
             return
         values = {"evaluation/index": evaluation, "evaluation/mean_return": mean_return, "evaluation/label": label, "evaluation/team": parameters, **metrics}
-        for replay_index, replay_path in enumerate(replay_paths):
-            values[f"evaluation/replay_{replay_index}"] = self.wandb.Html(replay_path.read_text(encoding="utf-8"), inject=False)
+        if replay_paths:
+            values["evaluation/replay"] = self.wandb.Html(replay_paths[0].read_text(encoding="utf-8"), inject=False)
         with self.lock:
             self.run.log(values)
             if replay_paths:
@@ -612,6 +623,8 @@ def make_control_training_env(
     num_envs: int | None = None,
     vec_env: str | None = None,
     save_replays: bool | str = False,
+    account_configuration1: AccountConfiguration | None = None,
+    account_configuration2: AccountConfiguration | None = None,
 ):
     """Create independently seeded vector workers for PPO data collection."""
     num_envs = num_envs or args.num_envs
@@ -624,6 +637,7 @@ def make_control_training_env(
                 observation_encoder=observation_encoder,
                 opponent_team=None if opponent_team_pool is None else opponent_team_pool.builder(seed + rank),
                 server_configuration=server_configuration_for(args, rank), challenge_timeout=args.challenge_timeout, save_replays=save_replays,
+                account_configuration1=account_configuration1, account_configuration2=account_configuration2,
             )
 
         return initialize
@@ -713,16 +727,19 @@ def evaluate_candidate(
     )
     replay_dir = evaluation_replay_dir(args.output_dir, f"candidate_{evaluation + 1}")
     previous_replays = set(replay_dir.glob("*.html"))
+    evaluation_accounts = evaluation_account_configurations(EVALUATION_OPPONENT_NAMES[environment_class], evaluation, args.ng_workers > 1)
     if args.ng_workers > 1:
         evaluation_env = make_control_training_env(
             environment_class, learner_config, parameter_values, observation_encoder, args, seed + args.num_envs,
             opponent_team_pool=opponent_team_pool, num_envs=1, vec_env="subproc", save_replays=str(replay_dir),
+            account_configuration1=evaluation_accounts[0], account_configuration2=evaluation_accounts[1],
         )
     else:
         evaluation_env = make_control_env(
             environment_class, make_team(learner_config, parameter_values, seed + args.num_envs), observation_encoder,
             opponent_team=None if opponent_team_pool is None else opponent_team_pool.builder(seed + args.num_envs),
             server_configuration=server_configuration_for(args, args.num_envs), challenge_timeout=args.challenge_timeout, save_replays=str(replay_dir),
+            account_configuration1=evaluation_accounts[0], account_configuration2=evaluation_accounts[1],
         )
 
     try:

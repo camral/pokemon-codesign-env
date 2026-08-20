@@ -39,6 +39,7 @@ rl = [
     "nevergrad>=1.0",
     "torch>=2.1",
     "stable-baselines3>=2.3",
+    "wandb>=0.19",
 ]
 dev = [
     "pytest>=8.0",

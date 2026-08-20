@@ -25,18 +25,42 @@ if __package__:
         INVALID_CANDIDATE_LOSS,
         MaskedActorCriticPolicy,
         RetryingTeamDesigner,
+        WandbEvaluationLogger,
+        add_compute_arguments,
+        collect_evaluation_replays,
+        evaluation_replay_dir,
+        evaluate_vector_controller,
         make_ngopt_parameterization,
         make_search_config,
+        make_team,
+        make_training_callback,
+        make_vector_env,
         managed_showdown_server,
+        run_ngopt,
+        validate_compute_arguments,
+        validate_device,
+        wandb_config,
     )
 else:
     from train_sb3_ngopt import (
         INVALID_CANDIDATE_LOSS,
         MaskedActorCriticPolicy,
         RetryingTeamDesigner,
+        WandbEvaluationLogger,
+        add_compute_arguments,
+        collect_evaluation_replays,
+        evaluation_replay_dir,
+        evaluate_vector_controller,
         make_ngopt_parameterization,
         make_search_config,
+        make_team,
+        make_training_callback,
+        make_vector_env,
         managed_showdown_server,
+        run_ngopt,
+        validate_compute_arguments,
+        validate_device,
+        wandb_config,
     )
 
 TEAM_SIZE = 6
@@ -64,6 +88,36 @@ def make_league_env(
     )
 
 
+def make_league_training_env(
+    search_config,
+    parameter_values: dict,
+    observation_encoder: HumanVisibleBattleEncoder,
+    args: argparse.Namespace,
+    seed: int,
+    num_envs: int | None = None,
+    vec_env: str | None = None,
+    save_replays: bool | str = False,
+):
+    """Create independently seeded League workers for PPO data collection."""
+    num_envs = num_envs or args.num_envs
+    vec_env = vec_env or args.vec_env
+
+    def make_env(rank: int):
+        def initialize():
+            return PokemonLeagueEnv(
+                team=make_team(search_config, parameter_values, seed + rank),
+                generation=None if args.random_league else args.generation,
+                random_league=args.random_league,
+                difficulty=args.difficulty,
+                observation_encoder=observation_encoder,
+                save_replays=save_replays,
+            )
+
+        return initialize
+
+    return make_vector_env([make_env(rank) for rank in range(num_envs)], vec_env)
+
+
 def evaluate_controller(model: PPO, env, episodes: int) -> float:
     """Return the mean full-League episode return."""
     episode_returns = []
@@ -84,45 +138,53 @@ def evaluate_candidate(
     search_config,
     observation_encoder: HumanVisibleBattleEncoder,
     args: argparse.Namespace,
+    evaluation: int,
     seed: int,
-) -> tuple[float, PPO | None]:
+    wandb_logger: WandbEvaluationLogger,
+) -> tuple[float, PPO | None, tuple[Path, ...]]:
     """Train one candidate controller and return NGOpt's minimization loss."""
-    team = RetryingTeamDesigner(search_config)
-    team.set_optimizable_parameter_values(parameter_values)
-    team.rng = np.random.default_rng(seed)
+    team = make_team(search_config, parameter_values, seed)
     try:
         team.yield_team()
     except ValueError as error:
         print(f"Rejected embodiment {parameter_values}: {error}")
-        return INVALID_CANDIDATE_LOSS, None
+        return INVALID_CANDIDATE_LOSS, None, ()
 
-    env = make_league_env(
-        team,
-        observation_encoder,
-        None if args.random_league else args.generation,
-        args.random_league,
-        args.difficulty,
-    )
-    rollout_steps = min(256, max(2, args.ppo_timesteps))
-    batch_size = 64 if rollout_steps % 64 == 0 else rollout_steps
+    training_env = make_league_training_env(search_config, parameter_values, observation_encoder, args, seed)
+    replay_dir = evaluation_replay_dir(args.output_dir, f"candidate_{evaluation + 1}")
+    previous_replays = set(replay_dir.glob("*.html"))
+    if args.ng_workers > 1:
+        evaluation_env = make_league_training_env(
+            search_config, parameter_values, observation_encoder, args, seed + args.num_envs, num_envs=1, vec_env="subproc", save_replays=str(replay_dir)
+        )
+    else:
+        evaluation_env = make_league_env(
+            make_team(search_config, parameter_values, seed + args.num_envs), observation_encoder,
+            None if args.random_league else args.generation, args.random_league, args.difficulty,
+            save_replays=str(replay_dir),
+        )
     try:
         model = PPO(
             MaskedActorCriticPolicy,
-            env,
-            n_steps=rollout_steps,
-            batch_size=batch_size,
+            training_env,
+            n_steps=args.rollout_steps,
+            batch_size=args.batch_size,
             learning_rate=3e-4,
             gamma=0.99,
             ent_coef=0.01,
             seed=seed,
-            device="cpu",
+            device=args.device,
             verbose=int(args.verbose),
         )
-        model.learn(total_timesteps=args.ppo_timesteps)
-        mean_return = evaluate_controller(model, env, args.evaluation_episodes)
+        model.learn(total_timesteps=args.ppo_timesteps, callback=make_training_callback(args, wandb_logger, f"candidate-{evaluation + 1}", evaluation))
+        if args.ng_workers > 1:
+            mean_return = evaluate_vector_controller(model, evaluation_env, args.evaluation_episodes)
+        else:
+            mean_return = evaluate_controller(model, evaluation_env, args.evaluation_episodes)
     finally:
-        env.close()
-    return -mean_return, model
+        training_env.close()
+        evaluation_env.close()
+    return -mean_return, model, collect_evaluation_replays(replay_dir, previous_replays)
 
 
 def watch_saved_controller(
@@ -135,6 +197,7 @@ def watch_saved_controller(
     generation: int | None,
     random_league: bool,
     difficulty: int,
+    device: str,
 ) -> None:
     """Play slowed League runs with the saved best team and controller."""
     controller_path = output_dir / "best_controller"
@@ -145,10 +208,7 @@ def watch_saved_controller(
         or not team_path.exists()
         or not schema_path.exists()
     ):
-        raise FileNotFoundError(
-            f"No compatible saved controller, team, and observation schema found in "
-            f"{output_dir}. Run training first."
-        )
+        raise FileNotFoundError(f"No compatible saved controller, team, and observation schema found in {output_dir}. Run training first.")
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     if schema != observation_encoder.get_schema():
         raise ValueError("The saved controller uses a different observation schema. Retrain it.")
@@ -166,15 +226,12 @@ def watch_saved_controller(
         account_configuration1=AccountConfiguration("CodesignRL", None),
         account_configuration2=AccountConfiguration("LeagueOpponent", None),
     )
-    model = PPO.load(controller_path, env=env, device="cpu")
+    model = PPO.load(controller_path, env=env, device=device)
 
     def print_battle(game: int) -> None:
         league_env = env.unwrapped
         battle_tag = league_env._battle_env.env.battle1.battle_tag
-        print(
-            f"watch_game={game}/{games} trainer={league_env.current_trainer.name} "
-            f"url=http://localhost:8000/{battle_tag}"
-        )
+        print(f"watch_game={game}/{games} trainer={league_env.current_trainer.name} url=http://localhost:8000/{battle_tag}")
         time.sleep(start_delay)
 
     try:
@@ -212,6 +269,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ppo-timesteps", type=int, default=2048)
     parser.add_argument("--evaluation-episodes", type=int, default=4)
     parser.add_argument("--seed", type=int, default=0)
+    add_compute_arguments(parser)
     parser.add_argument("--output-dir", type=Path, default=Path("runs/pokemon_league"))
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--launch-server", action="store_true")
@@ -227,6 +285,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    validate_compute_arguments(args)
+    validate_device(args.device)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     format_id = (
         PokemonLeagueEnv.RANDOM_BATTLE_FORMAT
@@ -235,15 +295,11 @@ def main() -> None:
     )
     format_config = FormatConfig.from_showdown(format_id)
     search_config = make_search_config(format_config)
-    observation_encoder = HumanVisibleBattleEncoder.from_showdown(
-        format_config,
-        observation_config=OBSERVATION_CONFIG,
-    )
+    observation_encoder = HumanVisibleBattleEncoder.from_showdown(format_config, observation_config=OBSERVATION_CONFIG)
 
-    with managed_showdown_server(
-        args.launch_server,
-        format_config.showdown_path,
-        args.verbose,
+    with (
+        WandbEvaluationLogger(args, wandb_config(args), enabled=not args.watch) as wandb_logger,
+        managed_showdown_server(args.launch_server, format_config.showdown_path, args.verbose),
     ):
         if args.watch:
             watch_saved_controller(
@@ -256,50 +312,41 @@ def main() -> None:
                 None if args.random_league else args.generation,
                 args.random_league,
                 args.difficulty,
+                args.device,
             )
             return
 
         schema_path = args.output_dir / "observation_schema.json"
-        schema_path.write_text(
-            json.dumps(observation_encoder.get_schema(), indent=2) + "\n",
-            encoding="utf-8",
-        )
+        schema_path.write_text(json.dumps(observation_encoder.get_schema(), indent=2) + "\n", encoding="utf-8")
         parametrization = make_ngopt_parameterization(search_config)
         parametrization.random_state.seed(args.seed)
-        optimizer = ng.optimizers.NGOpt(
-            parametrization=parametrization,
-            budget=args.ng_budget,
-            num_workers=1,
-        )
+        optimizer = ng.optimizers.NGOpt(parametrization=parametrization, budget=args.ng_budget, num_workers=args.ng_workers)
 
         best_loss = float("inf")
         best_parameters = None
-        for evaluation in range(args.ng_budget):
-            candidate = optimizer.ask()
-            parameters = candidate.value
-            loss, model = evaluate_candidate(
-                parameters,
-                search_config,
-                observation_encoder,
-                args,
-                args.seed + evaluation,
-            )
-            optimizer.tell(candidate, loss)
-            print(
-                f"candidate={evaluation + 1}/{args.ng_budget} "
-                f"mean_return={-loss:.3f} parameters={parameters}"
-            )
+
+        def evaluate(evaluation, parameters):
+            return evaluate_candidate(parameters, search_config, observation_encoder, args, evaluation, args.seed + evaluation, wandb_logger)
+
+        for evaluation, parameters, loss, model, replay_paths, duration in run_ngopt(optimizer, args.ng_budget, args.ng_workers, evaluate):
+            print(f"candidate={evaluation + 1}/{args.ng_budget} mean_return={-loss:.3f} parameters={parameters}")
+            wandb_logger.log(f"candidate-{evaluation + 1}", evaluation, -loss, parameters, replay_paths)
             if model is not None and loss < best_loss:
                 best_loss = loss
                 best_parameters = parameters
                 model.save(args.output_dir / "best_controller")
-                (args.output_dir / "best_team.json").write_text(
-                    json.dumps(parameters, indent=2) + "\n",
-                    encoding="utf-8",
+                (args.output_dir / "best_team.json").write_text(json.dumps(parameters, indent=2) + "\n", encoding="utf-8")
+                wandb_logger.log_checkpoint(
+                    f"candidate-{evaluation + 1}",
+                    (args.output_dir / "best_controller.zip", args.output_dir / "best_team.json", args.output_dir / "observation_schema.json"),
                 )
+            recommendation = optimizer.provide_recommendation().value
+            wandb_logger.log_optimization(f"candidate-{evaluation + 1}", evaluation, -loss, -best_loss, parameters, recommendation, duration)
 
+        recommendation = optimizer.provide_recommendation().value
+        wandb_logger.log_final(-best_loss, recommendation)
         print(f"best_evaluated_return={-best_loss:.3f} best_team={best_parameters}")
-        print(f"ngopt_recommendation={optimizer.provide_recommendation().value}")
+        print(f"ngopt_recommendation={recommendation}")
 
 
 if __name__ == "__main__":

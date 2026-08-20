@@ -278,7 +278,9 @@ class HumanVisibleBattleEncoder:
             f"{prefix}.pp_fraction",
             self._normalized(move.current_pp, max(1, move.max_pp)),
         )
-        self._set(state, f"{prefix}.priority", self._normalized(move.priority, 7))
+        move_entry = getattr(move, "entry", None)
+        priority = move_entry.get("priority", 0) if move_entry is not None else move.priority
+        self._set(state, f"{prefix}.priority", self._normalized(priority, 7))
         self._set(
             state,
             f"{prefix}.category_id",

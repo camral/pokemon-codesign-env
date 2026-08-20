@@ -57,6 +57,79 @@ Add `--launch-server` to start the bundled local Showdown server automatically.
 The script reuses an existing server on port 8000 when present; otherwise it
 starts one, waits until it is ready, and stops only that server when it exits.
 
+All training examples use the CPU and one in-process environment by default.
+Select any PyTorch device with `--device`, including a specific GPU:
+
+```bash
+python examples/train_sb3_ngopt.py --device cuda
+python examples/train_pokemon_league_sb3_ngopt.py --device cuda:6
+python examples/train_self_play_sb3_ngopt.py --device mps
+```
+
+Use `--device auto` to let SB3 select CUDA when available and otherwise use the
+CPU. The same option also controls where saved controllers are loaded in watch
+mode.
+
+For a GPU training run, use process-parallel Showdown environments and a larger
+rollout/minibatch:
+
+```bash
+python examples/train_sb3_ngopt.py \
+  --device cuda:6 \
+  --num-envs 8 \
+  --vec-env subproc \
+  --rollout-steps 512 \
+  --batch-size 1024 \
+  --profile-gpu \
+  --gpu-log-interval 4096 \
+  --launch-server \
+  --verbose
+```
+
+The PPO rollout buffer contains `num_envs * rollout_steps` samples, and
+`batch-size` must divide that value. `--profile-gpu` reports the selected GPU,
+utilization when supported by the installed PyTorch build, and allocated,
+reserved, and peak CUDA memory during training.
+
+`--ng-workers N` evaluates up to N embodiment candidates concurrently and
+requires `--vec-env subproc` so each candidate's poke-env state remains process
+isolated. Each candidate owns its own PPO model and vector environment, so
+increase this only when the server, CPU, and GPU memory can support them.
+Usually one NGOpt worker with several vector environments is the best
+configuration for a single GPU. The self-play example keeps frozen opponent
+inference on CPU by default; use `--opponent-device` to change it.
+
+The installed PyTorch build must include support for the requested accelerator.
+Before a long run, verify the selected CUDA index with:
+
+```bash
+python -c 'import torch; print(torch.cuda.is_available(), torch.cuda.device_count())'
+```
+
+Enable W&B evaluation logging by supplying a project:
+
+```bash
+python examples/train_pokemon_league_sb3_ngopt.py \
+  --generation 4 \
+  --wandb-project pokemon-codesign \
+  --wandb-entity YOUR_ENTITY \
+  --wandb-group gen4-league \
+  --launch-server
+```
+
+W&B tracks the full experiment: PPO rollout and training statistics, NGOpt
+candidate returns and incumbent progress, candidate duration, wall time, the
+current recommendation, optional GPU statistics, and promoted controller
+checkpoints. Replay recording remains evaluation-only, and every candidate is
+evaluated by one environment even when training uses multiple vector workers.
+Each completed evaluation battle is displayed in W&B as an HTML Pokemon
+Showdown replay and uploaded in a downloadable `evaluation-replays` artifact. A
+Pokemon League evaluation can therefore log up to five replays per episode.
+Use `--wandb-mode offline` to save locally for later `wandb sync`, or
+`--wandb-mode disabled` to exercise the same configuration without logging.
+Optional run organization is available through `--wandb-name` and
+`--wandb-group`.
+
 Switch baseline environments with one option:
 
 ```bash

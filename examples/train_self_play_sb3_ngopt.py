@@ -26,18 +26,42 @@ if __package__:
         INVALID_CANDIDATE_LOSS,
         MaskedActorCriticPolicy,
         RetryingTeamDesigner,
+        WandbEvaluationLogger,
+        add_compute_arguments,
+        collect_evaluation_replays,
+        evaluation_replay_dir,
+        evaluate_vector_controller,
         make_ngopt_parameterization,
         make_search_config,
+        make_team,
+        make_training_callback,
+        make_vector_env,
         managed_showdown_server,
+        run_ngopt,
+        validate_compute_arguments,
+        validate_device,
+        wandb_config,
     )
 else:
     from train_sb3_ngopt import (
         INVALID_CANDIDATE_LOSS,
         MaskedActorCriticPolicy,
         RetryingTeamDesigner,
+        WandbEvaluationLogger,
+        add_compute_arguments,
+        collect_evaluation_replays,
+        evaluation_replay_dir,
+        evaluate_vector_controller,
         make_ngopt_parameterization,
         make_search_config,
+        make_team,
+        make_training_callback,
+        make_vector_env,
         managed_showdown_server,
+        run_ngopt,
+        validate_compute_arguments,
+        validate_device,
+        wandb_config,
     )
 
 TEAM_SIZE = 6
@@ -47,16 +71,13 @@ OBSERVATION_CONFIG = ObservationConfig(team_size=TEAM_SIZE)
 class FrozenPolicyPlayer(Player):
     """Use a frozen masked PPO policy as a poke-env opponent."""
 
-    def __init__(self, model: PPO, observation_encoder: HumanVisibleBattleEncoder, **kwargs):
-        self.model = model
+    def __init__(self, model_path: Path, device: str, observation_encoder: HumanVisibleBattleEncoder, **kwargs):
+        self.model = PPO.load(model_path, device=device)
         self.observation_encoder = observation_encoder
         super().__init__(**kwargs)
 
     def choose_move(self, battle):
-        observation = {
-            **self.observation_encoder.encode(battle),
-            "action_mask": np.asarray(SinglesEnv.get_action_mask(battle), dtype=np.int8),
-        }
+        observation = {**self.observation_encoder.encode(battle), "action_mask": np.asarray(SinglesEnv.get_action_mask(battle), dtype=np.int8)}
         action, _ = self.model.predict(observation, deterministic=True)
         return SinglesEnv.action_to_order(np.int64(action), battle, strict=False)
 
@@ -72,28 +93,60 @@ class FrozenPolicyOpponentEnv(BaselineOpponentEnv):
 def make_env(
     learner_team: RetryingTeamDesigner,
     observation_encoder: HumanVisibleBattleEncoder,
-    champion_model: PPO | None,
+    champion_controller: Path | None,
     champion_team: RetryingTeamDesigner | None,
+    opponent_device: str,
+    monitor: bool = True,
+    save_replays: bool | str = False,
 ):
     """Create a bootstrap or frozen-champion training environment."""
-    if champion_model is None:
-        return Monitor(
-            RandomPlayerEnv(
-                team=learner_team,
-                observation_encoder=observation_encoder,
-            )
-        )
-    return Monitor(
-        FrozenPolicyOpponentEnv(
+    if champion_controller is None:
+        env = RandomPlayerEnv(team=learner_team, observation_encoder=observation_encoder, save_replays=save_replays)
+    else:
+        env = FrozenPolicyOpponentEnv(
             team=learner_team,
             opponent_team=champion_team,
             observation_encoder=observation_encoder,
-            opponent_kwargs={
-                "model": champion_model,
-                "observation_encoder": observation_encoder,
-            },
+            opponent_kwargs={"model_path": champion_controller, "device": opponent_device, "observation_encoder": observation_encoder},
+            save_replays=save_replays,
         )
-    )
+    return Monitor(env) if monitor else env
+
+
+def make_training_env(
+    parameters: dict,
+    search_config,
+    observation_encoder: HumanVisibleBattleEncoder,
+    champion_controller: Path | None,
+    champion_parameters: dict | None,
+    args: argparse.Namespace,
+    seed: int,
+    num_envs: int | None = None,
+    vec_env: str | None = None,
+    save_replays: bool | str = False,
+):
+    """Create vectorized bootstrap or frozen-champion workers."""
+    num_envs = num_envs or args.num_envs
+    vec_env = vec_env or args.vec_env
+
+    def initialize(rank: int):
+        def make_worker():
+            champion_team = None
+            if champion_parameters is not None:
+                champion_team = make_team(search_config, champion_parameters, seed + args.num_envs + rank)
+            return make_env(
+                make_team(search_config, parameters, seed + rank),
+                observation_encoder,
+                champion_controller,
+                champion_team,
+                args.opponent_device,
+                monitor=False,
+                save_replays=save_replays,
+            )
+
+        return make_worker
+
+    return make_vector_env([initialize(rank) for rank in range(num_envs)], vec_env)
 
 
 def evaluate_controller(model: PPO, env, episodes: int) -> float:
@@ -115,53 +168,61 @@ def evaluate_candidate(
     parameters: dict,
     search_config,
     observation_encoder: HumanVisibleBattleEncoder,
-    champion_model: PPO | None,
+    champion_controller: Path | None,
     champion_parameters: dict | None,
     args: argparse.Namespace,
+    round_index: int,
+    evaluation: int,
     seed: int,
-) -> tuple[float, PPO | None]:
+    wandb_logger: WandbEvaluationLogger,
+) -> tuple[float, PPO | None, tuple[Path, ...]]:
     """Train a challenger against one frozen opponent snapshot."""
-    learner_team = RetryingTeamDesigner(search_config)
-    learner_team.set_optimizable_parameter_values(parameters)
-    learner_team.rng = np.random.default_rng(seed)
+    learner_team = make_team(search_config, parameters, seed)
     try:
         learner_team.yield_team()
     except ValueError as error:
         print(f"Rejected embodiment {parameters}: {error}")
-        return INVALID_CANDIDATE_LOSS, None
+        return INVALID_CANDIDATE_LOSS, None, ()
 
     champion_team = None
     if champion_parameters is not None:
-        champion_team = RetryingTeamDesigner(search_config)
-        champion_team.set_optimizable_parameter_values(champion_parameters)
-        champion_team.rng = np.random.default_rng(seed + 1_000_000)
+        champion_team = make_team(search_config, champion_parameters, seed + 1_000_000)
 
-    env = make_env(
-        learner_team,
-        observation_encoder,
-        champion_model,
-        champion_team,
-    )
-    rollout_steps = min(256, max(2, args.ppo_timesteps))
-    batch_size = 64 if rollout_steps % 64 == 0 else rollout_steps
+    training_env = make_training_env(parameters, search_config, observation_encoder, champion_controller, champion_parameters, args, seed)
+    replay_dir = evaluation_replay_dir(args.output_dir, f"round_{round_index + 1}_candidate_{evaluation + 1}")
+    previous_replays = set(replay_dir.glob("*.html"))
+    if args.ng_workers > 1:
+        evaluation_env = make_training_env(
+            parameters, search_config, observation_encoder, champion_controller, champion_parameters, args,
+            seed + args.num_envs, num_envs=1, vec_env="subproc", save_replays=str(replay_dir),
+        )
+    else:
+        evaluation_env = make_env(learner_team, observation_encoder, champion_controller, champion_team, args.opponent_device, save_replays=str(replay_dir))
     try:
         model = PPO(
             MaskedActorCriticPolicy,
-            env,
-            n_steps=rollout_steps,
-            batch_size=batch_size,
+            training_env,
+            n_steps=args.rollout_steps,
+            batch_size=args.batch_size,
             learning_rate=3e-4,
             gamma=0.99,
             ent_coef=0.01,
             seed=seed,
-            device="cpu",
+            device=args.device,
             verbose=int(args.verbose),
         )
-        model.learn(total_timesteps=args.ppo_timesteps)
-        mean_return = evaluate_controller(model, env, args.evaluation_episodes)
+        model.learn(
+            total_timesteps=args.ppo_timesteps,
+            callback=make_training_callback(args, wandb_logger, f"round-{round_index + 1}-candidate-{evaluation + 1}", evaluation, round_index),
+        )
+        if args.ng_workers > 1:
+            mean_return = evaluate_vector_controller(model, evaluation_env, args.evaluation_episodes)
+        else:
+            mean_return = evaluate_controller(model, evaluation_env, args.evaluation_episodes)
     finally:
-        env.close()
-    return -mean_return, model
+        training_env.close()
+        evaluation_env.close()
+    return -mean_return, model, collect_evaluation_replays(replay_dir, previous_replays)
 
 
 def parse_args() -> argparse.Namespace:
@@ -171,6 +232,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ppo-timesteps", type=int, default=2048)
     parser.add_argument("--evaluation-episodes", type=int, default=8)
     parser.add_argument("--seed", type=int, default=0)
+    add_compute_arguments(parser)
+    parser.add_argument("--opponent-device", default="cpu")
     parser.add_argument("--output-dir", type=Path, default=Path("runs/self_play"))
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--launch-server", action="store_true")
@@ -179,83 +242,74 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    validate_compute_arguments(args)
+    validate_device(args.device)
+    validate_device(args.opponent_device)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     format_config = FormatConfig.from_showdown(RandomPlayerEnv.BATTLE_FORMAT)
     search_config = make_search_config(format_config)
-    observation_encoder = HumanVisibleBattleEncoder.from_showdown(
-        format_config,
-        observation_config=OBSERVATION_CONFIG,
-    )
-    (args.output_dir / "observation_schema.json").write_text(
-        json.dumps(observation_encoder.get_schema(), indent=2) + "\n",
-        encoding="utf-8",
-    )
+    observation_encoder = HumanVisibleBattleEncoder.from_showdown(format_config, observation_config=OBSERVATION_CONFIG)
+    (args.output_dir / "observation_schema.json").write_text(json.dumps(observation_encoder.get_schema(), indent=2) + "\n", encoding="utf-8")
 
-    champion_model = None
+    champion_controller = None
     champion_parameters = None
-    with managed_showdown_server(
-        args.launch_server,
-        format_config.showdown_path,
-        args.verbose,
+    with (
+        WandbEvaluationLogger(args, wandb_config(args)) as wandb_logger,
+        managed_showdown_server(args.launch_server, format_config.showdown_path, args.verbose),
     ):
         for round_index in range(args.self_play_rounds):
             parametrization = make_ngopt_parameterization(search_config)
             parametrization.random_state.seed(args.seed + round_index)
-            optimizer = ng.optimizers.NGOpt(
-                parametrization=parametrization,
-                budget=args.ng_budget,
-                num_workers=1,
-            )
+            optimizer = ng.optimizers.NGOpt(parametrization=parametrization, budget=args.ng_budget, num_workers=args.ng_workers)
             round_loss = float("inf")
             round_model = None
             round_parameters = None
 
-            for evaluation in range(args.ng_budget):
-                candidate = optimizer.ask()
-                parameters = candidate.value
+            def evaluate(evaluation, parameters):
                 seed = args.seed + round_index * args.ng_budget + evaluation
-                loss, model = evaluate_candidate(
-                    parameters,
-                    search_config,
-                    observation_encoder,
-                    champion_model,
-                    champion_parameters,
-                    args,
-                    seed,
+                return evaluate_candidate(
+                    parameters, search_config, observation_encoder, champion_controller, champion_parameters,
+                    args, round_index, evaluation, seed, wandb_logger,
                 )
-                optimizer.tell(candidate, loss)
+
+            for evaluation, parameters, loss, model, replay_paths, duration in run_ngopt(optimizer, args.ng_budget, args.ng_workers, evaluate):
                 print(
                     f"round={round_index + 1}/{args.self_play_rounds} "
                     f"candidate={evaluation + 1}/{args.ng_budget} "
                     f"mean_return={-loss:.3f} parameters={parameters}"
                 )
+                wandb_logger.log(
+                    f"round-{round_index + 1}-candidate-{evaluation + 1}", evaluation, -loss, parameters,
+                    replay_paths, **{"evaluation/round": round_index + 1},
+                )
                 if model is not None and loss < round_loss:
                     round_loss = loss
                     round_model = model
                     round_parameters = parameters
+                recommendation = optimizer.provide_recommendation().value
+                wandb_logger.log_optimization(
+                    f"round-{round_index + 1}-candidate-{evaluation + 1}", evaluation, -loss, -round_loss,
+                    parameters, recommendation, duration, round_index,
+                )
 
             if round_model is None:
                 raise RuntimeError(f"Self-play round {round_index + 1} produced no valid team.")
 
-            champion_model = round_model
             champion_parameters = round_parameters
             round_dir = args.output_dir / f"round_{round_index + 1}"
             round_dir.mkdir(parents=True, exist_ok=True)
-            champion_model.save(round_dir / "controller")
-            (round_dir / "team.json").write_text(
-                json.dumps(champion_parameters, indent=2) + "\n",
-                encoding="utf-8",
+            round_model.save(round_dir / "controller")
+            champion_controller = round_dir / "controller"
+            (round_dir / "team.json").write_text(json.dumps(champion_parameters, indent=2) + "\n", encoding="utf-8")
+            round_model.save(args.output_dir / "best_controller")
+            (args.output_dir / "best_team.json").write_text(json.dumps(champion_parameters, indent=2) + "\n", encoding="utf-8")
+            wandb_logger.log_checkpoint(
+                f"round-{round_index + 1}-champion",
+                (round_dir / "controller.zip", round_dir / "team.json", args.output_dir / "observation_schema.json"),
             )
-            champion_model.save(args.output_dir / "best_controller")
-            (args.output_dir / "best_team.json").write_text(
-                json.dumps(champion_parameters, indent=2) + "\n",
-                encoding="utf-8",
-            )
+            wandb_logger.log_final(-round_loss, optimizer.provide_recommendation().value)
             opponent = "random" if round_index == 0 else f"round_{round_index}"
-            print(
-                f"round={round_index + 1} promoted_return={-round_loss:.3f} "
-                f"opponent={opponent} team={champion_parameters}"
-            )
+            print(f"round={round_index + 1} promoted_return={-round_loss:.3f} opponent={opponent} team={champion_parameters}")
 
 
 if __name__ == "__main__":

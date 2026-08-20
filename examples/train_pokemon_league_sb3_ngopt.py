@@ -19,6 +19,7 @@ from stable_baselines3.common.monitor import Monitor
 from pokemon_codesign_env.configs import FormatConfig, ObservationConfig
 from pokemon_codesign_env.envs import PokemonLeagueEnv, get_pokemon_league
 from pokemon_codesign_env.observations import HumanVisibleBattleEncoder
+from pokemon_codesign_env.team_pool import RandomTeamPool
 
 if __package__:
     from examples.train_sb3_ngopt import (
@@ -35,8 +36,10 @@ if __package__:
         make_team,
         make_training_callback,
         make_vector_env,
-        managed_showdown_server,
+        managed_showdown_cluster,
         run_ngopt,
+        server_configuration_for,
+        showdown_cluster,
         validate_compute_arguments,
         validate_device,
         wandb_config,
@@ -56,8 +59,10 @@ else:
         make_team,
         make_training_callback,
         make_vector_env,
-        managed_showdown_server,
+        managed_showdown_cluster,
         run_ngopt,
+        server_configuration_for,
+        showdown_cluster,
         validate_compute_arguments,
         validate_device,
         wandb_config,
@@ -94,6 +99,7 @@ def make_league_training_env(
     observation_encoder: HumanVisibleBattleEncoder,
     args: argparse.Namespace,
     seed: int,
+    learner_team_pool: RandomTeamPool | None = None,
     num_envs: int | None = None,
     vec_env: str | None = None,
     save_replays: bool | str = False,
@@ -105,17 +111,19 @@ def make_league_training_env(
     def make_env(rank: int):
         def initialize():
             return PokemonLeagueEnv(
-                team=make_team(search_config, parameter_values, seed + rank),
+                team=make_team(search_config, parameter_values, seed + rank) if learner_team_pool is None else learner_team_pool.builder(seed + rank),
                 generation=None if args.random_league else args.generation,
                 random_league=args.random_league,
                 difficulty=args.difficulty,
                 observation_encoder=observation_encoder,
+                server_configuration=server_configuration_for(args, rank),
+                challenge_timeout=args.challenge_timeout,
                 save_replays=save_replays,
             )
 
         return initialize
 
-    return make_vector_env([make_env(rank) for rank in range(num_envs)], vec_env)
+    return make_vector_env([make_env(rank) for rank in range(num_envs)], vec_env, args.envs_per_worker, args.reset_retries)
 
 
 def evaluate_controller(model: PPO, env, episodes: int) -> float:
@@ -150,7 +158,27 @@ def evaluate_candidate(
         print(f"Rejected embodiment {parameter_values}: {error}")
         return INVALID_CANDIDATE_LOSS, None, ()
 
-    training_env = make_league_training_env(search_config, parameter_values, observation_encoder, args, seed)
+    learner_pool_size = args.learner_team_pool_size or (max(args.num_envs, 1_024) if args.vec_env == "sharded" else 0)
+    learner_team_pool = None
+    if learner_pool_size:
+        wandb_logger.log_system("learner_team_pool_generating", label=f"candidate-{evaluation + 1}", team_pool_size=learner_pool_size)
+        pool_started_at = time.monotonic()
+        team.validate_teams = False
+        learner_team_pool = RandomTeamPool.from_generator(
+            search_config.format.showdown_path, search_config.format.format_id, learner_pool_size, team.yield_team
+        )
+        wandb_logger.log_system(
+            "learner_team_pool_ready", label=f"candidate-{evaluation + 1}", team_pool_size=learner_pool_size,
+            team_pool_startup_s=time.monotonic() - pool_started_at,
+        )
+
+    wandb_logger.log_system("environments_starting", label=f"candidate-{evaluation + 1}", candidate=evaluation, ready_environments=0)
+    environments_started_at = time.monotonic()
+    training_env = make_league_training_env(search_config, parameter_values, observation_encoder, args, seed, learner_team_pool)
+    wandb_logger.log_system(
+        "environments_ready", label=f"candidate-{evaluation + 1}", candidate=evaluation, ready_environments=args.num_envs,
+        environment_startup_s=time.monotonic() - environments_started_at,
+    )
     replay_dir = evaluation_replay_dir(args.output_dir, f"candidate_{evaluation + 1}")
     previous_replays = set(replay_dir.glob("*.html"))
     if args.ng_workers > 1:
@@ -161,7 +189,7 @@ def evaluate_candidate(
         evaluation_env = make_league_env(
             make_team(search_config, parameter_values, seed + args.num_envs), observation_encoder,
             None if args.random_league else args.generation, args.random_league, args.difficulty,
-            save_replays=str(replay_dir),
+            server_configuration=server_configuration_for(args, args.num_envs), challenge_timeout=args.challenge_timeout, save_replays=str(replay_dir),
         )
     try:
         model = PPO(
@@ -299,7 +327,7 @@ def main() -> None:
 
     with (
         WandbEvaluationLogger(args, wandb_config(args), enabled=not args.watch) as wandb_logger,
-        managed_showdown_server(args.launch_server, format_config.showdown_path, args.verbose),
+        managed_showdown_cluster(args.launch_server, format_config.showdown_path, showdown_cluster(args), args.verbose),
     ):
         if args.watch:
             watch_saved_controller(

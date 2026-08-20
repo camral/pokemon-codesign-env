@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from enum import IntEnum
 from importlib.resources import files
 from pathlib import Path
+from threading import Lock
 
 import numpy as np
 from gymnasium import Env, spaces
@@ -128,6 +129,8 @@ def _load_league(generation: int) -> PokemonLeague:
 
 
 POKEMON_LEAGUES = {generation: _load_league(generation) for generation in range(1, 10)}
+LEAGUE_TEAM_CACHE = {}
+LEAGUE_TEAM_CACHE_LOCK = Lock()
 
 
 def get_pokemon_league(generation: int) -> PokemonLeague:
@@ -158,7 +161,12 @@ class LeagueTeam(Teambuilder):
         self._packed_team = None
 
     def yield_team(self) -> str:
-        if self._packed_team is None:
+        cache_key = (self.league.generation, self.trainer.name, self.battle_format)
+        if cache_key in LEAGUE_TEAM_CACHE:
+            return LEAGUE_TEAM_CACHE[cache_key]
+        with LEAGUE_TEAM_CACHE_LOCK:
+            if cache_key in LEAGUE_TEAM_CACHE:
+                return LEAGUE_TEAM_CACHE[cache_key]
             team = [
                 TeambuilderPokemon(
                     species=pokemon.species,
@@ -177,6 +185,7 @@ class LeagueTeam(Teambuilder):
             ]
             self._packed_team = self.join_team(team)
             validate_team(self.battle_format, self._packed_team, self.showdown_path)
+            LEAGUE_TEAM_CACHE[cache_key] = self._packed_team
         return self._packed_team
 
 

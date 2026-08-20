@@ -39,6 +39,9 @@ from pokemon_codesign_env.configs import (
 from pokemon_codesign_env.envs import MaxBasePowerPlayerEnv, RandomPlayerEnv, SimpleHeuristicsPlayerEnv
 from pokemon_codesign_env.envs.base import BaselineOpponentEnv
 from pokemon_codesign_env.observations import HumanVisibleBattleEncoder
+from pokemon_codesign_env.scaling import ShowdownClusterConfig, ShowdownEndpoint, managed_showdown_cluster
+from pokemon_codesign_env.sharded_vec_env import ShardedVecEnv
+from pokemon_codesign_env.team_pool import RandomTeamPool
 from pokemon_codesign_env.team_designer import TeamDesigner
 
 TEAM_SIZE = 6
@@ -108,6 +111,17 @@ class WandbRLCallback(BaseCallback):
         self.label = label
         self.evaluation = evaluation
         self.round_index = round_index
+        self.started_at = None
+        self.completed_episodes = 0
+        self._next_telemetry = None
+
+    def _on_training_start(self) -> None:
+        self.started_at = time.monotonic()
+        self._next_telemetry = self.model.n_envs
+        self.wandb_logger.log_system(
+            "rollout_started", label=self.label, candidate=self.evaluation, ready_environments=self.model.n_envs,
+            rollout_size=self.model.n_envs * self.model.n_steps, round_index=self.round_index,
+        )
 
     def _log(self) -> None:
         metrics = {}
@@ -117,6 +131,20 @@ class WandbRLCallback(BaseCallback):
         self.wandb_logger.log_training(self.label, self.evaluation, self.num_timesteps, metrics, self.round_index)
 
     def _on_step(self) -> bool:
+        dones = self.locals.get("dones")
+        if dones is not None:
+            self.completed_episodes += int(np.sum(dones))
+        interval = self.wandb_logger.telemetry_log_interval
+        if self.num_timesteps >= self._next_telemetry:
+            elapsed = max(time.monotonic() - self.started_at, 1e-9)
+            rollout_size = self.model.n_envs * self.model.n_steps
+            metrics = {
+                "rl/rollout/vector_steps": self.n_calls, "rl/rollout/transitions_per_second": self.num_timesteps / elapsed,
+                "rl/rollout/completed_episodes": self.completed_episodes,
+                "rl/rollout/buffer_fill": ((self.num_timesteps - 1) % rollout_size + 1) / rollout_size,
+            }
+            self.wandb_logger.log_training(self.label, self.evaluation, self.num_timesteps, metrics, self.round_index)
+            self._next_telemetry = self.num_timesteps + interval
         return True
 
     def _on_rollout_end(self) -> None:
@@ -130,12 +158,21 @@ def add_compute_arguments(parser: argparse.ArgumentParser) -> None:
     """Add shared PPO, vectorization, NGOpt, and accelerator options."""
     parser.add_argument("--device", default="cpu", help="PyTorch device, for example cpu, cuda, cuda:6, mps, or auto.")
     parser.add_argument("--num-envs", type=int, default=1)
-    parser.add_argument("--vec-env", choices=("dummy", "subproc"), default="dummy")
+    parser.add_argument("--vec-env", choices=("dummy", "subproc", "sharded"), default="dummy")
+    parser.add_argument("--envs-per-worker", type=int, default=32)
+    parser.add_argument("--reset-retries", type=int, default=3)
+    parser.add_argument("--challenge-timeout", type=float, default=60.0)
     parser.add_argument("--rollout-steps", type=int, default=256)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--ng-workers", type=int, default=1)
     parser.add_argument("--profile-gpu", action="store_true")
     parser.add_argument("--gpu-log-interval", type=int, default=1_000)
+    parser.add_argument("--telemetry-log-interval", type=int, default=1_000)
+    parser.add_argument("--showdown-host", default=SHOWDOWN_HOST)
+    parser.add_argument("--showdown-base-port", type=int, default=SHOWDOWN_PORT)
+    parser.add_argument("--showdown-shards", type=int, default=1)
+    parser.add_argument("--random-team-pool-size", type=int, default=0)
+    parser.add_argument("--learner-team-pool-size", type=int, default=0)
     parser.add_argument("--wandb-project")
     parser.add_argument("--wandb-entity")
     parser.add_argument("--wandb-group")
@@ -145,8 +182,13 @@ def add_compute_arguments(parser: argparse.ArgumentParser) -> None:
 
 def validate_compute_arguments(args: argparse.Namespace) -> None:
     """Reject invalid parallelism and PPO buffer configurations early."""
-    for name in ("num_envs", "rollout_steps", "batch_size", "ng_workers", "gpu_log_interval", "ppo_timesteps", "evaluation_episodes", "ng_budget"):
-        if getattr(args, name, 1) < 1:
+    defaults = {"envs_per_worker": 32, "telemetry_log_interval": 1_000, "showdown_shards": 1}
+    for name in (
+        "num_envs", "envs_per_worker", "reset_retries", "challenge_timeout", "rollout_steps", "batch_size", "ng_workers", "gpu_log_interval",
+        "telemetry_log_interval",
+        "showdown_shards", "ppo_timesteps", "evaluation_episodes", "ng_budget",
+    ):
+        if getattr(args, name, defaults.get(name, 1)) < 1:
             raise ValueError(f"--{name.replace('_', '-')} must be at least 1")
     rollout_size = args.num_envs * args.rollout_steps
     if rollout_size < 2 or args.batch_size < 2:
@@ -155,8 +197,16 @@ def validate_compute_arguments(args: argparse.Namespace) -> None:
         raise ValueError(f"--batch-size ({args.batch_size}) cannot exceed the rollout buffer size ({args.num_envs} environments x {args.rollout_steps} steps)")
     if rollout_size % args.batch_size:
         raise ValueError(f"--batch-size ({args.batch_size}) must divide the rollout buffer size ({rollout_size})")
-    if args.ng_workers > 1 and args.vec_env != "subproc":
-        raise ValueError("--ng-workers greater than 1 requires --vec-env subproc so poke-env state is process-isolated")
+    if getattr(args, "ppo_timesteps", rollout_size) < rollout_size:
+        raise ValueError(f"--ppo-timesteps must be at least one complete rollout ({rollout_size} = num_envs x rollout_steps)")
+    for name in ("random_team_pool_size", "learner_team_pool_size"):
+        if getattr(args, name, 0) < 0:
+            raise ValueError(f"--{name.replace('_', '-')} cannot be negative")
+    ShowdownClusterConfig(
+        getattr(args, "showdown_host", SHOWDOWN_HOST), getattr(args, "showdown_base_port", SHOWDOWN_PORT), getattr(args, "showdown_shards", 1)
+    )
+    if args.ng_workers > 1 and args.vec_env not in ("subproc", "sharded"):
+        raise ValueError("--ng-workers greater than 1 requires --vec-env subproc or sharded so poke-env state is process-isolated")
 
 
 def validate_device(device_name: str) -> None:
@@ -174,19 +224,29 @@ def validate_device(device_name: str) -> None:
         raise RuntimeError("MPS was requested but is unavailable")
 
 
-def make_team(search_config, parameter_values: dict, seed: int) -> "RetryingTeamDesigner":
+def make_team(search_config, parameter_values: dict, seed: int, validate_teams: bool = True) -> "RetryingTeamDesigner":
     """Build one independently seeded copy of an optimized team."""
-    team = RetryingTeamDesigner(search_config)
+    team = RetryingTeamDesigner(search_config, validate_teams=validate_teams)
     team.set_optimizable_parameter_values(parameter_values)
     team.rng = np.random.default_rng(seed)
     return team
 
 
-def make_vector_env(env_factories, vec_env: str):
+def make_vector_env(env_factories, vec_env: str, envs_per_worker: int = 32, reset_retries: int = 3):
     """Create a monitored in-process or process-parallel SB3 vector environment."""
+    if vec_env == "sharded":
+        return VecMonitor(ShardedVecEnv(env_factories, envs_per_worker=envs_per_worker, reset_retries=reset_retries, start_method="spawn"))
     vector_class = DummyVecEnv if vec_env == "dummy" else SubprocVecEnv
     kwargs = {} if vec_env == "dummy" else {"start_method": "spawn"}
     return VecMonitor(vector_class(env_factories, **kwargs))
+
+
+def showdown_cluster(args: argparse.Namespace) -> ShowdownClusterConfig:
+    return ShowdownClusterConfig(args.showdown_host, args.showdown_base_port, args.showdown_shards)
+
+
+def server_configuration_for(args: argparse.Namespace, environment_index: int):
+    return showdown_cluster(args).endpoint_for(environment_index).server_configuration
 
 
 def make_training_callback(
@@ -229,6 +289,7 @@ class WandbEvaluationLogger:
         self.lock = Lock()
         self.started_at = time.monotonic()
         self.completed_evaluations = 0
+        self.telemetry_log_interval = args.telemetry_log_interval
         if not enabled or args.wandb_project is None:
             return
         try:
@@ -240,6 +301,10 @@ class WandbEvaluationLogger:
             project=args.wandb_project, entity=args.wandb_entity, group=args.wandb_group,
             name=args.wandb_name, mode=args.wandb_mode, config=config, dir=str(args.output_dir),
         )
+        self.run.log({
+            "system/status": "initialized", "system/wall_time_s": 0.0,
+            "system/requested_environments": args.num_envs, "system/showdown_shards": args.showdown_shards,
+        })
 
     def log(self, label: str, evaluation: int, mean_return: float, parameters: dict, replay_paths: tuple[Path, ...], **metrics) -> None:
         if self.run is None:
@@ -261,6 +326,16 @@ class WandbEvaluationLogger:
         values = {"rl/label": label, "rl/candidate": evaluation, "rl/timesteps": timesteps, "rl/wall_time_s": time.monotonic() - self.started_at, **metrics}
         if round_index is not None:
             values["rl/round"] = round_index + 1
+        with self.lock:
+            self.run.log(values)
+
+    def log_system(self, status: str, **metrics) -> None:
+        if self.run is None:
+            return
+        values = {
+            "system/status": status, "system/wall_time_s": time.monotonic() - self.started_at,
+            **{f"system/{name}": value for name, value in metrics.items()},
+        }
         with self.lock:
             self.run.log(values)
 
@@ -413,8 +488,8 @@ def managed_showdown_server(enabled: bool, showdown_path: Path, verbose: bool = 
 class RetryingTeamDesigner(TeamDesigner):
     """Retry random team details that Showdown rejects."""
 
-    def __init__(self, search_config: TeamSearchConfig, max_attempts: int = 10):
-        super().__init__(search_config)
+    def __init__(self, search_config: TeamSearchConfig, max_attempts: int = 10, validate_teams: bool = True):
+        super().__init__(search_config, validate_teams=validate_teams)
         self.max_attempts = max_attempts
 
     def yield_team(self) -> str:
@@ -512,6 +587,7 @@ def make_control_env(
     save_replays: bool | str = False,
     account_configuration1: AccountConfiguration | None = None,
     account_configuration2: AccountConfiguration | None = None,
+    **env_kwargs,
 ):
     """Create the selected baseline environment for one learner team."""
     return Monitor(environment_class(
@@ -520,6 +596,7 @@ def make_control_env(
         account_configuration1=account_configuration1,
         account_configuration2=account_configuration2,
         save_replays=save_replays,
+        **env_kwargs,
     ))
 
 
@@ -528,21 +605,30 @@ def make_control_training_env(
     learner_config: TeamSearchConfig,
     parameter_values: dict,
     observation_encoder: HumanVisibleBattleEncoder,
-    num_envs: int,
-    vec_env: str,
+    args: argparse.Namespace,
     seed: int,
+    learner_team_pool: RandomTeamPool | None = None,
+    opponent_team_pool: RandomTeamPool | None = None,
+    num_envs: int | None = None,
+    vec_env: str | None = None,
     save_replays: bool | str = False,
 ):
     """Create independently seeded vector workers for PPO data collection."""
+    num_envs = num_envs or args.num_envs
+    vec_env = vec_env or args.vec_env
+
     def make_env(rank: int):
         def initialize():
             return environment_class(
-                team=make_team(learner_config, parameter_values, seed + rank), observation_encoder=observation_encoder, save_replays=save_replays
+                team=make_team(learner_config, parameter_values, seed + rank) if learner_team_pool is None else learner_team_pool.builder(seed + rank),
+                observation_encoder=observation_encoder,
+                opponent_team=None if opponent_team_pool is None else opponent_team_pool.builder(seed + rank),
+                server_configuration=server_configuration_for(args, rank), challenge_timeout=args.challenge_timeout, save_replays=save_replays,
             )
 
         return initialize
 
-    return make_vector_env([make_env(rank) for rank in range(num_envs)], vec_env)
+    return make_vector_env([make_env(rank) for rank in range(num_envs)], vec_env, args.envs_per_worker, args.reset_retries)
 
 
 def evaluate_controller(model: PPO, env, episodes: int) -> float:
@@ -590,6 +676,7 @@ def evaluate_candidate(
     observation_encoder: HumanVisibleBattleEncoder,
     args: argparse.Namespace,
     wandb_logger: WandbEvaluationLogger,
+    opponent_team_pool: RandomTeamPool | None,
 ) -> tuple[float, PPO | None, tuple[Path, ...]]:
     """Train a fresh controller and return NGOpt's minimization loss."""
     learner_team = make_team(learner_config, parameter_values, seed)
@@ -600,16 +687,42 @@ def evaluate_candidate(
         print(f"Rejected embodiment {parameter_values}: {error}")
         return INVALID_CANDIDATE_LOSS, None, ()
 
-    training_env = make_control_training_env(environment_class, learner_config, parameter_values, observation_encoder, args.num_envs, args.vec_env, seed)
+    learner_pool_size = args.learner_team_pool_size or (max(args.num_envs, 1_024) if args.vec_env == "sharded" else 0)
+    learner_team_pool = None
+    if learner_pool_size:
+        wandb_logger.log_system("learner_team_pool_generating", label=f"candidate-{evaluation + 1}", team_pool_size=learner_pool_size)
+        pool_started_at = time.monotonic()
+        learner_team.validate_teams = False
+        learner_team_pool = RandomTeamPool.from_generator(
+            learner_config.format.showdown_path, learner_config.format.format_id, learner_pool_size, learner_team.yield_team
+        )
+        wandb_logger.log_system(
+            "learner_team_pool_ready", label=f"candidate-{evaluation + 1}", team_pool_size=learner_pool_size,
+            team_pool_startup_s=time.monotonic() - pool_started_at,
+        )
+
+    wandb_logger.log_system("environments_starting", label=f"candidate-{evaluation + 1}", candidate=evaluation, ready_environments=0)
+    environments_started_at = time.monotonic()
+    training_env = make_control_training_env(
+        environment_class, learner_config, parameter_values, observation_encoder, args, seed, learner_team_pool, opponent_team_pool
+    )
+    wandb_logger.log_system(
+        "environments_ready", label=f"candidate-{evaluation + 1}", candidate=evaluation, ready_environments=args.num_envs,
+        environment_workers=len(training_env.unwrapped.processes) if isinstance(training_env.unwrapped, ShardedVecEnv) else args.num_envs,
+        environment_startup_s=time.monotonic() - environments_started_at,
+    )
     replay_dir = evaluation_replay_dir(args.output_dir, f"candidate_{evaluation + 1}")
     previous_replays = set(replay_dir.glob("*.html"))
     if args.ng_workers > 1:
         evaluation_env = make_control_training_env(
-            environment_class, learner_config, parameter_values, observation_encoder, 1, "subproc", seed + args.num_envs, str(replay_dir)
+            environment_class, learner_config, parameter_values, observation_encoder, args, seed + args.num_envs,
+            opponent_team_pool=opponent_team_pool, num_envs=1, vec_env="subproc", save_replays=str(replay_dir),
         )
     else:
         evaluation_env = make_control_env(
-            environment_class, make_team(learner_config, parameter_values, seed + args.num_envs), observation_encoder, save_replays=str(replay_dir)
+            environment_class, make_team(learner_config, parameter_values, seed + args.num_envs), observation_encoder,
+            opponent_team=None if opponent_team_pool is None else opponent_team_pool.builder(seed + args.num_envs),
+            server_configuration=server_configuration_for(args, args.num_envs), challenge_timeout=args.challenge_timeout, save_replays=str(replay_dir),
         )
 
     try:
@@ -737,6 +850,14 @@ def run_experiment(
 
     (args.output_dir / "observation_schema.json").write_text(json.dumps(observation_encoder.get_schema(), indent=2) + "\n", encoding="utf-8")
 
+    pool_size = args.random_team_pool_size or (max(args.num_envs, 1_024) if args.vec_env == "sharded" else 0)
+    opponent_team_pool = None
+    if pool_size:
+        wandb_logger.log_system("team_pool_generating", team_pool_size=pool_size)
+        pool_started_at = time.monotonic()
+        opponent_team_pool = RandomTeamPool.from_showdown(format_config.showdown_path, environment_class.OPPONENT_TEAM_FORMAT, pool_size)
+        wandb_logger.log_system("team_pool_ready", team_pool_size=pool_size, team_pool_startup_s=time.monotonic() - pool_started_at)
+
     parametrization = make_ngopt_parameterization(learner_config)
     parametrization.random_state.seed(args.seed)
     optimizer = ng.optimizers.NGOpt(parametrization=parametrization, budget=args.ng_budget, num_workers=args.ng_workers)
@@ -759,7 +880,7 @@ def run_experiment(
         if args.verbose:
             print(f"candidate={evaluation + 1}/{args.ng_budget} status=starting parameters={parameter_values}")
         return evaluate_candidate(
-            parameter_values, environment_class, learner_config, evaluation, args.seed + evaluation, observation_encoder, args, wandb_logger
+            parameter_values, environment_class, learner_config, evaluation, args.seed + evaluation, observation_encoder, args, wandb_logger, opponent_team_pool
         )
 
     for evaluation, parameter_values, loss, model, replay_paths, duration in run_ngopt(optimizer, args.ng_budget, args.ng_workers, evaluate):
@@ -794,7 +915,7 @@ def main() -> None:
     wandb_logger = WandbEvaluationLogger(args, wandb_config(args), enabled=not args.watch)
 
     try:
-        with managed_showdown_server(args.launch_server, format_config.showdown_path, args.verbose):
+        with managed_showdown_cluster(args.launch_server, format_config.showdown_path, showdown_cluster(args), args.verbose):
             run_experiment(args, environment_class, format_config, wandb_logger)
     finally:
         wandb_logger.finish()

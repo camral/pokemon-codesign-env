@@ -7,6 +7,7 @@ promotes the best evaluated challenger.
 
 import argparse
 import json
+import time
 from pathlib import Path
 
 import nevergrad as ng
@@ -20,6 +21,7 @@ from pokemon_codesign_env.configs import FormatConfig, ObservationConfig
 from pokemon_codesign_env.envs import RandomPlayerEnv
 from pokemon_codesign_env.envs.base import BaselineOpponentEnv
 from pokemon_codesign_env.observations import HumanVisibleBattleEncoder
+from pokemon_codesign_env.team_pool import RandomTeamPool
 
 if __package__:
     from examples.train_sb3_ngopt import (
@@ -36,8 +38,10 @@ if __package__:
         make_team,
         make_training_callback,
         make_vector_env,
-        managed_showdown_server,
+        managed_showdown_cluster,
         run_ngopt,
+        server_configuration_for,
+        showdown_cluster,
         validate_compute_arguments,
         validate_device,
         wandb_config,
@@ -57,8 +61,10 @@ else:
         make_team,
         make_training_callback,
         make_vector_env,
-        managed_showdown_server,
+        managed_showdown_cluster,
         run_ngopt,
+        server_configuration_for,
+        showdown_cluster,
         validate_compute_arguments,
         validate_device,
         wandb_config,
@@ -66,13 +72,17 @@ else:
 
 TEAM_SIZE = 6
 OBSERVATION_CONFIG = ObservationConfig(team_size=TEAM_SIZE)
+FROZEN_MODEL_CACHE = {}
 
 
 class FrozenPolicyPlayer(Player):
     """Use a frozen masked PPO policy as a poke-env opponent."""
 
     def __init__(self, model_path: Path, device: str, observation_encoder: HumanVisibleBattleEncoder, **kwargs):
-        self.model = PPO.load(model_path, device=device)
+        cache_key = (str(model_path.resolve()), device)
+        if cache_key not in FROZEN_MODEL_CACHE:
+            FROZEN_MODEL_CACHE[cache_key] = PPO.load(model_path, device=device)
+        self.model = FROZEN_MODEL_CACHE[cache_key]
         self.observation_encoder = observation_encoder
         super().__init__(**kwargs)
 
@@ -96,12 +106,14 @@ def make_env(
     champion_controller: Path | None,
     champion_team: RetryingTeamDesigner | None,
     opponent_device: str,
+    random_team=None,
     monitor: bool = True,
     save_replays: bool | str = False,
+    **env_kwargs,
 ):
     """Create a bootstrap or frozen-champion training environment."""
     if champion_controller is None:
-        env = RandomPlayerEnv(team=learner_team, observation_encoder=observation_encoder, save_replays=save_replays)
+        env = RandomPlayerEnv(team=learner_team, opponent_team=random_team, observation_encoder=observation_encoder, save_replays=save_replays, **env_kwargs)
     else:
         env = FrozenPolicyOpponentEnv(
             team=learner_team,
@@ -109,6 +121,7 @@ def make_env(
             observation_encoder=observation_encoder,
             opponent_kwargs={"model_path": champion_controller, "device": opponent_device, "observation_encoder": observation_encoder},
             save_replays=save_replays,
+            **env_kwargs,
         )
     return Monitor(env) if monitor else env
 
@@ -121,6 +134,9 @@ def make_training_env(
     champion_parameters: dict | None,
     args: argparse.Namespace,
     seed: int,
+    learner_team_pool: RandomTeamPool | None = None,
+    random_team_pool: RandomTeamPool | None = None,
+    champion_team_pool: RandomTeamPool | None = None,
     num_envs: int | None = None,
     vec_env: str | None = None,
     save_replays: bool | str = False,
@@ -133,20 +149,26 @@ def make_training_env(
         def make_worker():
             champion_team = None
             if champion_parameters is not None:
-                champion_team = make_team(search_config, champion_parameters, seed + args.num_envs + rank)
+                champion_team = (
+                    make_team(search_config, champion_parameters, seed + args.num_envs + rank)
+                    if champion_team_pool is None else champion_team_pool.builder(seed + args.num_envs + rank)
+                )
             return make_env(
-                make_team(search_config, parameters, seed + rank),
+                make_team(search_config, parameters, seed + rank) if learner_team_pool is None else learner_team_pool.builder(seed + rank),
                 observation_encoder,
                 champion_controller,
                 champion_team,
                 args.opponent_device,
+                random_team=None if random_team_pool is None else random_team_pool.builder(seed + rank),
                 monitor=False,
                 save_replays=save_replays,
+                server_configuration=server_configuration_for(args, rank),
+                challenge_timeout=args.challenge_timeout,
             )
 
         return make_worker
 
-    return make_vector_env([initialize(rank) for rank in range(num_envs)], vec_env)
+    return make_vector_env([initialize(rank) for rank in range(num_envs)], vec_env, args.envs_per_worker, args.reset_retries)
 
 
 def evaluate_controller(model: PPO, env, episodes: int) -> float:
@@ -175,6 +197,8 @@ def evaluate_candidate(
     evaluation: int,
     seed: int,
     wandb_logger: WandbEvaluationLogger,
+    random_team_pool: RandomTeamPool | None,
+    champion_team_pool: RandomTeamPool | None,
 ) -> tuple[float, PPO | None, tuple[Path, ...]]:
     """Train a challenger against one frozen opponent snapshot."""
     learner_team = make_team(search_config, parameters, seed)
@@ -184,20 +208,54 @@ def evaluate_candidate(
         print(f"Rejected embodiment {parameters}: {error}")
         return INVALID_CANDIDATE_LOSS, None, ()
 
+    learner_pool_size = args.learner_team_pool_size or (max(args.num_envs, 1_024) if args.vec_env == "sharded" else 0)
+    learner_team_pool = None
+    if learner_pool_size:
+        wandb_logger.log_system("learner_team_pool_generating", label=f"round-{round_index + 1}-candidate-{evaluation + 1}", team_pool_size=learner_pool_size)
+        pool_started_at = time.monotonic()
+        learner_team.validate_teams = False
+        learner_team_pool = RandomTeamPool.from_generator(
+            search_config.format.showdown_path, search_config.format.format_id, learner_pool_size, learner_team.yield_team
+        )
+        wandb_logger.log_system(
+            "learner_team_pool_ready", label=f"round-{round_index + 1}-candidate-{evaluation + 1}", team_pool_size=learner_pool_size,
+            team_pool_startup_s=time.monotonic() - pool_started_at,
+        )
+
     champion_team = None
     if champion_parameters is not None:
-        champion_team = make_team(search_config, champion_parameters, seed + 1_000_000)
+        champion_team = (
+            make_team(search_config, champion_parameters, seed + 1_000_000)
+            if champion_team_pool is None else champion_team_pool.builder(seed + 1_000_000)
+        )
 
-    training_env = make_training_env(parameters, search_config, observation_encoder, champion_controller, champion_parameters, args, seed)
+    wandb_logger.log_system(
+        "environments_starting", label=f"round-{round_index + 1}-candidate-{evaluation + 1}", candidate=evaluation,
+        ready_environments=0, round_index=round_index,
+    )
+    environments_started_at = time.monotonic()
+    training_env = make_training_env(
+        parameters, search_config, observation_encoder, champion_controller, champion_parameters, args, seed,
+        learner_team_pool, random_team_pool, champion_team_pool,
+    )
+    wandb_logger.log_system(
+        "environments_ready", label=f"round-{round_index + 1}-candidate-{evaluation + 1}", candidate=evaluation,
+        ready_environments=args.num_envs, environment_startup_s=time.monotonic() - environments_started_at, round_index=round_index,
+    )
     replay_dir = evaluation_replay_dir(args.output_dir, f"round_{round_index + 1}_candidate_{evaluation + 1}")
     previous_replays = set(replay_dir.glob("*.html"))
     if args.ng_workers > 1:
         evaluation_env = make_training_env(
             parameters, search_config, observation_encoder, champion_controller, champion_parameters, args,
-            seed + args.num_envs, num_envs=1, vec_env="subproc", save_replays=str(replay_dir),
+            seed + args.num_envs, random_team_pool=random_team_pool, champion_team_pool=champion_team_pool,
+            num_envs=1, vec_env="subproc", save_replays=str(replay_dir),
         )
     else:
-        evaluation_env = make_env(learner_team, observation_encoder, champion_controller, champion_team, args.opponent_device, save_replays=str(replay_dir))
+        evaluation_env = make_env(
+            learner_team, observation_encoder, champion_controller, champion_team, args.opponent_device,
+            random_team=None if random_team_pool is None else random_team_pool.builder(seed + args.num_envs),
+            save_replays=str(replay_dir), server_configuration=server_configuration_for(args, args.num_envs), challenge_timeout=args.challenge_timeout,
+        )
     try:
         model = PPO(
             MaskedActorCriticPolicy,
@@ -255,9 +313,31 @@ def main() -> None:
     champion_parameters = None
     with (
         WandbEvaluationLogger(args, wandb_config(args)) as wandb_logger,
-        managed_showdown_server(args.launch_server, format_config.showdown_path, args.verbose),
+        managed_showdown_cluster(args.launch_server, format_config.showdown_path, showdown_cluster(args), args.verbose),
     ):
+        pool_size = args.random_team_pool_size or (max(args.num_envs, 1_024) if args.vec_env == "sharded" else 0)
+        random_team_pool = None
+        if pool_size:
+            wandb_logger.log_system("team_pool_generating", team_pool_size=pool_size)
+            pool_started_at = time.monotonic()
+            random_team_pool = RandomTeamPool.from_showdown(format_config.showdown_path, RandomPlayerEnv.OPPONENT_TEAM_FORMAT, pool_size)
+            wandb_logger.log_system("team_pool_ready", team_pool_size=pool_size, team_pool_startup_s=time.monotonic() - pool_started_at)
         for round_index in range(args.self_play_rounds):
+            champion_team_pool = None
+            champion_pool_size = args.learner_team_pool_size or (max(args.num_envs, 1_024) if args.vec_env == "sharded" else 0)
+            if champion_parameters is not None and champion_pool_size:
+                wandb_logger.log_system("champion_team_pool_generating", round_index=round_index, team_pool_size=champion_pool_size)
+                pool_started_at = time.monotonic()
+                champion_designer = make_team(search_config, champion_parameters, args.seed + round_index * args.ng_budget)
+                champion_designer.yield_team()
+                champion_designer.validate_teams = False
+                champion_team_pool = RandomTeamPool.from_generator(
+                    search_config.format.showdown_path, search_config.format.format_id, champion_pool_size, champion_designer.yield_team
+                )
+                wandb_logger.log_system(
+                    "champion_team_pool_ready", round_index=round_index, team_pool_size=champion_pool_size,
+                    team_pool_startup_s=time.monotonic() - pool_started_at,
+                )
             parametrization = make_ngopt_parameterization(search_config)
             parametrization.random_state.seed(args.seed + round_index)
             optimizer = ng.optimizers.NGOpt(parametrization=parametrization, budget=args.ng_budget, num_workers=args.ng_workers)
@@ -269,7 +349,7 @@ def main() -> None:
                 seed = args.seed + round_index * args.ng_budget + evaluation
                 return evaluate_candidate(
                     parameters, search_config, observation_encoder, champion_controller, champion_parameters,
-                    args, round_index, evaluation, seed, wandb_logger,
+                    args, round_index, evaluation, seed, wandb_logger, random_team_pool, champion_team_pool,
                 )
 
             for evaluation, parameters, loss, model, replay_paths, duration in run_ngopt(optimizer, args.ng_budget, args.ng_workers, evaluate):

@@ -10,9 +10,10 @@ class TeamDesigner(Teambuilder):
     """
     This class expresses the team design process as a search problem.
     """
-    def __init__(self, search_config: TeamSearchConfig):
+    def __init__(self, search_config: TeamSearchConfig, validate_teams: bool = True):
         super().__init__()
         self.search_config = search_config
+        self.validate_teams = validate_teams
         self.team: list[PokemonParameters] = []
         self.optimizable_attributes = {}
         self.optimizable_parameter_values = {}
@@ -358,7 +359,8 @@ class TeamDesigner(Teambuilder):
                     happiness=pokemon.happiness,
                     tera_type=pokemon.tera_type)
                 for pokemon in self.team])
-            validate_team(self.search_config.format.format_id, packed_team, self.search_config.format.showdown_path)
+            if self.validate_teams:
+                validate_team(self.search_config.format.format_id, packed_team, self.search_config.format.showdown_path)
         except Exception:
             self.team = previous_team
             self.sampled_observations = {}

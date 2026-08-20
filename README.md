@@ -22,7 +22,7 @@ git submodule update --init --recursive
 npm --prefix pokemon-showdown ci
 ```
 
-Pokemon Showdown requires Node.js 16 or newer. Install this Python project and
+The bundled Pokemon Showdown revision requires Node.js 22 or newer. Install this Python project and
 its reinforcement-learning dependencies from the repository root:
 
 ```bash
@@ -98,6 +98,48 @@ python examples/train_sb3_ngopt.py \
   --verbose
 ```
 
+For hundreds or thousands of logical environments, use the sharded backend
+instead of creating one Python process per environment. This example creates
+1,024 environments using 32 rollout processes and distributes their battles
+across eight Showdown servers on ports 8000 through 8007:
+
+```bash
+python examples/train_sb3_ngopt.py \
+  --device cuda:0 \
+  --num-envs 1024 \
+  --vec-env sharded \
+  --envs-per-worker 32 \
+  --reset-retries 3 \
+  --challenge-timeout 20 \
+  --showdown-shards 8 \
+  --rollout-steps 32 \
+  --batch-size 8192 \
+  --ppo-timesteps 1048576 \
+  --ng-budget 16 \
+  --ng-workers 1 \
+  --random-team-pool-size 8192 \
+  --profile-gpu \
+  --gpu-log-interval 8192 \
+  --telemetry-log-interval 1024 \
+  --wandb-project pokemon-codesign \
+  --wandb-entity YOUR_ENTITY \
+  --wandb-name gpu-1024-envs \
+  --wandb-mode online \
+  --launch-server \
+  --verbose
+```
+
+Each sharded rollout process owns up to `--envs-per-worker` environments and
+steps their I/O-bound battles concurrently. `--showdown-shards S` routes those
+environments round-robin over `S` consecutive ports beginning at
+`--showdown-base-port`. `--launch-server` builds Showdown once, starts only the
+missing shards, and stops only the shards it started. Random opponent teams are
+generated into one reusable pool so resets do not launch a Node process per
+battle. Start below the machine's limits and increase environments, rollout
+workers, and server shards while watching transitions per second and P95
+latency; raw GPU utilization is not the primary throughput measure for the
+small MLP controller.
+
 The PPO rollout buffer contains `num_envs * rollout_steps` samples, and
 `batch-size` must divide that value. `--profile-gpu` reports the selected GPU,
 utilization when supported by the installed PyTorch build, and allocated,
@@ -132,7 +174,9 @@ python examples/train_pokemon_league_sb3_ngopt.py \
 W&B tracks the full experiment: PPO rollout and training statistics, NGOpt
 candidate returns and incumbent progress, candidate duration, wall time, the
 current recommendation, optional GPU statistics, and promoted controller
-checkpoints. Replay recording remains evaluation-only, and every candidate is
+checkpoints. Scale telemetry starts before the first PPO update and includes
+environment readiness, startup time, vector steps, buffer fill, completed
+episodes, and transitions per second. Replay recording remains evaluation-only, and every candidate is
 evaluated by one environment even when training uses multiple vector workers.
 Each completed evaluation battle is displayed in W&B as an HTML Pokemon
 Showdown replay and uploaded in a downloadable `evaluation-replays` artifact. A

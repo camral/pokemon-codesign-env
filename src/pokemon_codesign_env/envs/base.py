@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import subprocess
 from pathlib import Path
 
@@ -11,6 +12,17 @@ from poke_env.teambuilder import Teambuilder
 from pokemon_codesign_env.configs import FormatConfig, ObservationConfig
 from pokemon_codesign_env.observations import HumanVisibleBattleEncoder
 from pokemon_codesign_env.showdown import validate_team
+
+
+class _UnexpectedEffectWarningFilter(logging.Filter):
+    """Suppress poke-env's repetitive unknown-effect compatibility warning."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        return not (record.name == "poke-env" and message.startswith("Unexpected effect '") and "Effect.UNKNOWN will be used instead." in message)
+
+
+logging.getLogger("poke-env").addFilter(_UnexpectedEffectWarningFilter())
 
 
 class ShowdownRandomTeam(Teambuilder):

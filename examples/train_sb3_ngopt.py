@@ -217,7 +217,7 @@ def sample_team_population(optimizer, search_config: TeamSearchConfig, populatio
     while len(teams) < population_size:
         needed = population_size - len(teams)
         proposed_candidates = [optimizer.ask() for _ in range(needed)]
-        proposed_parameters = [candidate.value for candidate in proposed_candidates]
+        proposed_parameters = [decode_ngopt_parameter_values(candidate.value) for candidate in proposed_candidates]
         team_batch = BatchedTeamDesigner(team_designers=[
             make_team(search_config, values, seed + attempts + index, validate_teams=False)
             for index, values in enumerate(proposed_parameters)
@@ -686,10 +686,22 @@ def make_ngopt_parameterization(search_config: TeamSearchConfig):
     """Translate this example's categorical embodiment space to Nevergrad."""
     designer = TeamDesigner(search_config)
     parameter_spaces = designer.get_optimizable_parameter_space()
+    parameter_space = parameter_spaces["pokemon_0"]
 
-    return ng.p.Dict(**{
-        pokemon: ng.p.Dict(species=ng.p.Choice(parameter_space["species"]["values"]), nature=ng.p.Choice(parameter_space["nature"]["values"]))
-        for pokemon, parameter_space in parameter_spaces.items()})
+    return ng.p.Dict(
+        species=ng.p.TransitionChoice(parameter_space["species"]["values"], repetitions=search_config.team_size),
+        nature=ng.p.TransitionChoice(parameter_space["nature"]["values"], repetitions=search_config.team_size),
+    )
+
+
+def decode_ngopt_parameter_values(parameter_values: dict) -> dict:
+    """Expand compact team-wide Nevergrad values into TeamDesigner parameters."""
+    if set(parameter_values) != {"species", "nature"}:
+        return parameter_values
+    return {
+        f"pokemon_{index}": {"species": species, "nature": nature}
+        for index, (species, nature) in enumerate(zip(parameter_values["species"], parameter_values["nature"], strict=True))
+    }
 
 
 def make_control_env(
@@ -920,7 +932,7 @@ def run_experiment(
     finally:
         training_env.close()
 
-    recommendation = optimizer.provide_recommendation().value
+    recommendation = decode_ngopt_parameter_values(optimizer.provide_recommendation().value)
     replay_dir = evaluation_replay_dir(args.output_dir, "final")
     previous_replays = set(replay_dir.glob("*.html"))
     evaluation_accounts = evaluation_account_configurations(EVALUATION_OPPONENT_NAMES[environment_class], 0)

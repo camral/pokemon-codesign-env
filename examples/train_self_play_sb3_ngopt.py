@@ -31,6 +31,7 @@ if __package__:
         WandbEvaluationLogger,
         add_compute_arguments,
         collect_evaluation_replays,
+        decode_ngopt_parameter_values,
         evaluation_account_configurations,
         evaluation_replay_dir,
         make_ngopt_parameterization,
@@ -55,6 +56,7 @@ else:
         WandbEvaluationLogger,
         add_compute_arguments,
         collect_evaluation_replays,
+        decode_ngopt_parameter_values,
         evaluation_account_configurations,
         evaluation_replay_dir,
         make_ngopt_parameterization,
@@ -280,7 +282,7 @@ def main() -> None:
                 training_env.close()
 
             previous_champion_parameters = champion_parameters
-            champion_parameters = optimizer.provide_recommendation().value
+            champion_parameters = decode_ngopt_parameter_values(optimizer.provide_recommendation().value)
             learner_team = make_team(search_config, champion_parameters, population_seed + population_evaluations)
             champion_team = None if previous_champion_parameters is None else make_team(
                 search_config, previous_champion_parameters, population_seed + population_evaluations + 1

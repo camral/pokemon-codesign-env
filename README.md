@@ -1,7 +1,29 @@
 # Pokemon Showdown Codesign Environment
 
+<p align="center">
+  <img src="docs/figures/codesign.png" alt="Pokemon Showdown as a co-design benchmark: an embodiment designer feeding the team design space and a control policy feeding the battle MDP, both composing your side of a single Pokemon Showdown battle that returns one score to both" width="100%">
+</p>
+
 **Pokemon Showdown** - A turn-based Pokemon battle simulator. This is based off [Pokemon Showdown](https://github.com/smogon/pokemon-showdown) and [Poke-Env](https://github.com/hsahovic/poke-env).
 In this problem setup, the agent is tasked with designing a Pokemon team (embodiment) and learning a battle strategy (control policy) to maximize its win rate against various opponents.
+
+Two searches run against each other. An **embodiment designer** searches the design space &Theta; for a
+team; a **control policy** acts in the battle MDP. Your side of a battle is assembled from both &mdash;
+the team you designed, played by the policy you trained &mdash; and the battle returns a single scalar
+`R` that scores the pair.
+
+The benchmark fixes &Theta;, the MDP and the opponent task suite, all resolved from a bundled,
+unpatched Pokemon Showdown, so legality and turn resolution are the real game's rather than ours. It
+does not fix the *method*: the designer and the policy are yours to bring, and the pair shipped in
+`examples/` (Nevergrad NGOpt and SB3 MaskablePPO) are reference baselines you are meant to replace.
+
+What makes it a co-design problem rather than two separate ones is that `R` cannot be attributed to
+either half. The strongest team depends on how it is played and the strongest policy depends on what
+it was handed, so neither can be optimised in isolation. Swapping a task-suite preset changes the
+problem without changing anything above it.
+
+The figure's source is [`docs/figures/codesign.drawio`](docs/figures/codesign.drawio); regenerate it
+with `python docs/figures/build_figure.py` and export via the draw.io CLI.
 
 The difficulties of the learning problems are yet to be fully explored, but the environment is designed to be flexible and allow for a wide range of co-design challenges.
 Potential environment setups:

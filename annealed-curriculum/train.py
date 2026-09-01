@@ -12,7 +12,15 @@ EXAMPLES_DIR = Path(__file__).resolve().parents[1] / "examples"
 if str(EXAMPLES_DIR) not in sys.path:
     sys.path.insert(0, str(EXAMPLES_DIR))
 
-from utils import add_compute_arguments, make_control_training_env, managed_showdown_cluster, server_configuration_for, showdown_cluster, validate_device
+from utils import (
+    WandbEvaluationLogger,
+    add_compute_arguments,
+    make_control_training_env,
+    managed_showdown_cluster,
+    showdown_cluster,
+    validate_device,
+    wandb_config,
+)
 
 from pokemon_codesign_env.configs import AttributeMode, FormatConfig, ItemMode, ObservationConfig, SelectionMode, TeamSearchConfig
 from pokemon_codesign_env.envs import RandomPlayerEnv
@@ -105,7 +113,7 @@ def validate_args(args: argparse.Namespace) -> None:
             raise ValueError(f"--{name.replace('_', '-')} must be at least one")
 
 
-def train(args: argparse.Namespace) -> None:
+def train(args: argparse.Namespace, wandb_logger: WandbEvaluationLogger) -> None:
     format_config = FormatConfig.from_showdown(RandomPlayerEnv.BATTLE_FORMAT)
     search_config = make_search_config(format_config)
     observation_config = ObservationConfig(team_size=6)
@@ -148,6 +156,8 @@ def train(args: argparse.Namespace) -> None:
     fitness = estimate_fitness(model, environment, candidates, args.state_samples, args.fitness)
     reservoir = select_reservoir(candidates, fitness, args.initial_reservoir_size)
     initial_rollout = True
+    cycle = 0
+    wandb_logger.log_system("curriculum_initialized", evaluation_batch_size=len(candidates), reservoir_size=len(reservoir))
 
     try:
         while completed_steps < args.total_steps:
@@ -172,9 +182,24 @@ def train(args: argparse.Namespace) -> None:
             model.learn(total_timesteps=steps, reset_num_timesteps=False, progress_bar=args.progress)
             completed_steps += steps
             initial_rollout = False
+            phase = "codesign" if completed_steps < phase_one_steps else "practice"
+            training_metrics = {
+                "curriculum/cycle": cycle,
+                "curriculum/phase": phase,
+                "curriculum/progress": min(progress, 1.0),
+                "curriculum/mutation_probability": mutation_probability,
+                "curriculum/reservoir_size": len(reservoir),
+                "curriculum/fitness_min": float(np.min(fitness)),
+                "curriculum/fitness_mean": float(np.mean(fitness)),
+                "curriculum/fitness_max": float(np.max(fitness)),
+            }
+            for name, value in model.logger.name_to_value.items():
+                if isinstance(value, (int, float, np.integer, np.floating)):
+                    training_metrics[f"rl/{name}"] = float(value)
+            wandb_logger.log_training("annealed-curriculum", cycle, completed_steps, training_metrics)
             if args.verbose:
-                phase = "codesign" if completed_steps < phase_one_steps else "practice"
                 print(f"steps={completed_steps}/{args.total_steps} phase={phase} reservoir={len(reservoir)} mutation={mutation_probability:.4f}", flush=True)
+            cycle += 1
     finally:
         environment.close()
 
@@ -182,15 +207,25 @@ def train(args: argparse.Namespace) -> None:
     model.save(args.output_dir / "controller")
     (args.output_dir / "champion.json").write_text(json.dumps(reservoir[0].parameters, indent=2) + "\n", encoding="utf-8")
     (args.output_dir / "champion.team").write_text(reservoir[0].packed_team + "\n", encoding="utf-8")
+    wandb_logger.log_final(float(np.max(fitness)), reservoir[0].parameters)
+    wandb_logger.log_checkpoint(
+        "final", (args.output_dir / "controller.zip", args.output_dir / "champion.json", args.output_dir / "champion.team")
+    )
+    wandb_logger.log_system("training_complete", completed_steps=completed_steps, curriculum_cycles=cycle)
 
 
 def main() -> None:
     args = parse_args()
     validate_args(args)
     validate_device(args.device)
+    args.output_dir.mkdir(parents=True, exist_ok=True)
     format_config = FormatConfig.from_showdown(RandomPlayerEnv.BATTLE_FORMAT)
-    with managed_showdown_cluster(args.launch_server, format_config.showdown_path, showdown_cluster(args), args.verbose):
-        train(args)
+    wandb_logger = WandbEvaluationLogger(args, wandb_config(args))
+    try:
+        with managed_showdown_cluster(args.launch_server, format_config.showdown_path, showdown_cluster(args), args.verbose):
+            train(args, wandb_logger)
+    finally:
+        wandb_logger.finish()
 
 
 if __name__ == "__main__":

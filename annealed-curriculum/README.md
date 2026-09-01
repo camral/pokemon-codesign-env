@@ -41,6 +41,9 @@ python annealed-curriculum/train.py \
     --vec-env sharded \
     --envs-per-worker 16 \
     --showdown-shards 4 \
+    --wandb-project pokemon-codesign \
+    --wandb-entity YOUR_ENTITY \
+    --wandb-name annealed-curriculum \
     --progress \
     --verbose
 ```
@@ -49,6 +52,10 @@ python annealed-curriculum/train.py \
 
 Outputs are written to `runs/annealed_curriculum`: `controller.zip`, the optimizer-facing `champion.json`, and the exact packed `champion.team` used by Showdown.
 
+## W&B logging
+
+Set `--wandb-project` to enable W&B. The run records DQN/SB3 training metrics, curriculum phase and cycle, mutation probability, reservoir size, and minimum/mean/maximum Q fitness. At completion it stores the champion in the run summary and uploads the controller, JSON genome, and packed Showdown team as a model artifact. The existing `--wandb-entity`, `--wandb-group`, `--wandb-name`, and `--wandb-mode` options are supported. Omitting `--wandb-project` disables logging.
+
 ## Current scope
 
-This is an intentionally small research baseline. It uses initial battle resets for the `Y` state samples, linear schedules, and a random-player/random-team opponent. It does not yet checkpoint the reservoir, log to W&B, or make moves an explicit outer-loop action. Those can be added without changing the curriculum core.
+This is an intentionally small research baseline. It uses initial battle resets for the `Y` state samples, linear schedules, and a random-player/random-team opponent. It does not yet checkpoint the complete reservoir, record evaluation replays, or make moves an explicit outer-loop action. Those can be added without changing the curriculum core.

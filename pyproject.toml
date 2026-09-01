@@ -42,6 +42,7 @@ rl = [
     "stable-baselines3>=2.3",
     "tqdm>=4.66",
     "wandb>=0.19",
+    "pyyaml>=6.0",
     "matplotlib>=3.7"
 ]
 dev = [

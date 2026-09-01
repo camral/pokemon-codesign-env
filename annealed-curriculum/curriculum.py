@@ -17,10 +17,33 @@ from pokemon_codesign_env.team_pool import validate_team_batch
 
 @dataclass(frozen=True)
 class TeamCandidate:
-    """A complete design and its immutable packed Showdown representation."""
+    """A persistent team genome; trajectory-level moves are deliberately absent."""
 
     parameters: dict
-    packed_team: str
+
+
+class TrajectoryTeamDesigner(TeamDesigner):
+    """Extend TeamDesigner with episode-level reservoir and move sampling."""
+
+    def __init__(self, search_config, candidates: list[TeamCandidate], seed: int):
+        if not candidates:
+            raise ValueError("TrajectoryTeamDesigner requires at least one candidate")
+        super().__init__(search_config, validate_teams=False)
+        self.candidates = tuple(candidates)
+        self.rng = np.random.default_rng(seed)
+
+    def yield_team(self) -> str:
+        candidate = self.candidates[int(self.rng.integers(len(self.candidates)))]
+        design_values = {
+            pokemon: {name: value for name, value in pokemon_values.items() if name != "level"}
+            for pokemon, pokemon_values in candidate.parameters.items()
+        }
+        self.set_optimizable_parameter_values(design_values)
+        observations = self.sample_observations()
+        for pokemon, pokemon_values in candidate.parameters.items():
+            observations[pokemon]["level"] = pokemon_values["level"]
+        self.sampled_observations = observations
+        return super().yield_team()
 
 
 class TeamPopulation:
@@ -51,9 +74,10 @@ class TeamPopulation:
             parameters[pokemon] = values
         return parameters
 
-    def _mutate_parameters(self, base: dict, probability: float) -> dict:
+    def _mutate_parameters(self, base: dict, probability: float, mutation_mask: np.ndarray | None = None) -> dict:
         values = deepcopy(base)
-        mutation_mask = self.rng.random((self.search_config.team_size, len(self.attributes))) < probability
+        if mutation_mask is None:
+            mutation_mask = self.rng.random((self.search_config.team_size, len(self.attributes))) < probability
         for pokemon_index in range(self.search_config.team_size):
             pokemon = f"pokemon_{pokemon_index}"
             old_species = values[pokemon].get("species")
@@ -68,8 +92,9 @@ class TeamPopulation:
                     values[pokemon][attribute] = self.designer.sample_parameter(self._parameter_space(attribute, species))
         return values
 
-    def _serialize(self, parameters: list[dict]) -> list[TeamCandidate]:
-        pending = [values if self._species_are_trackable(values) else self._sample_trackable_parameters() for values in parameters]
+    def _serialize(self, parameters: list[dict], replacement_factory=None) -> list[TeamCandidate]:
+        replacement_factory = replacement_factory or self._sample_trackable_parameters
+        pending = [values if self._species_are_trackable(values) else replacement_factory() for values in parameters]
         candidates = []
         attempts = 0
         while pending and attempts < 20:
@@ -87,8 +112,8 @@ class TeamPopulation:
                 self.designer.sampled_observations = observations
                 packed_teams.append(self.designer.yield_team())
             errors = validate_team_batch(self.search_config.format.showdown_path, self.search_config.format.format_id, packed_teams)
-            candidates.extend(TeamCandidate(values, team) for values, team, error in zip(pending, packed_teams, errors, strict=True) if error is None)
-            pending = [self._sample_trackable_parameters() for error in errors if error is not None]
+            candidates.extend(TeamCandidate(values) for values, error in zip(pending, errors, strict=True) if error is None)
+            pending = [replacement_factory() for error in errors if error is not None]
             attempts += 1
         if pending:
             raise RuntimeError(f"Could not produce {len(pending)} valid curriculum teams after {attempts} batches")
@@ -122,7 +147,21 @@ class TeamPopulation:
         if not 0.0 <= probability <= 1.0:
             raise ValueError(f"Mutation probability must be in [0, 1], got {probability}")
         bases = self.rng.integers(len(reservoir), size=size)
-        return self._serialize([self._mutate_parameters(reservoir[int(index)].parameters, probability) for index in bases])
+        mutation_masks = self.rng.random((size, self.search_config.team_size, len(self.attributes))) < probability
+
+        def replacement():
+            base = reservoir[int(self.rng.integers(len(reservoir)))].parameters
+            return self._mutate_parameters(base, probability)
+
+        parameters = [
+            self._mutate_parameters(reservoir[int(index)].parameters, probability, mutation_mask)
+            for index, mutation_mask in zip(bases, mutation_masks, strict=True)
+        ]
+        return self._serialize(parameters, replacement)
+
+    def trajectory_designer(self, candidates: list[TeamCandidate], seed: int) -> TrajectoryTeamDesigner:
+        """Create an episode-level sampler over the supplied reservoir."""
+        return TrajectoryTeamDesigner(self.search_config, candidates, seed)
 
 
 class TeamEmbeddingExtractor(BaseFeaturesExtractor):
@@ -212,13 +251,6 @@ def annealed_value(initial: float, final: float, progress: float) -> float:
     return initial + (final - initial) * progress
 
 
-def aggregate_fitness(values: np.ndarray, method: str) -> np.ndarray:
-    """Aggregate the Y Q estimates associated with every candidate."""
-    if method == "minimum":
-        return values.min(axis=1)
-    if method == "percentile10":
-        return np.percentile(values, 10, axis=1)
-    if method == "bottom-quartile":
-        count = max(1, int(np.ceil(values.shape[1] / 4)))
-        return np.sort(values, axis=1)[:, :count].mean(axis=1)
-    raise ValueError(f"Unknown fitness aggregation {method!r}")
+def minimum_fitness(values: np.ndarray) -> np.ndarray:
+    """Use the minimum of the Y initial-state Q estimates for every candidate."""
+    return values.min(axis=1)

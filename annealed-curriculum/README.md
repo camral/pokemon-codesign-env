@@ -41,6 +41,8 @@ python annealed-curriculum/train.py \
     --vec-env sharded \
     --envs-per-worker 16 \
     --showdown-shards 4 \
+    --evaluation-interval-cycles 10 \
+    --evaluation-episodes 4 \
     --wandb-project pokemon-codesign \
     --wandb-entity YOUR_ENTITY \
     --wandb-name annealed-curriculum \
@@ -56,7 +58,7 @@ Outputs are written to `runs/annealed_curriculum`: `controller.zip`, the optimiz
 
 Set `--wandb-project` to enable W&B. The run records DQN/SB3 training metrics, curriculum phase and cycle, mutation probability, reservoir size, and minimum/mean/maximum Q fitness. At completion it stores the champion in the run summary and uploads the controller, JSON genome, and packed Showdown team as a model artifact. The existing `--wandb-entity`, `--wandb-group`, `--wandb-name`, and `--wandb-mode` options are supported. Omitting `--wandb-project` disables logging.
 
-After training, `--evaluation-episodes` deterministic single-environment evaluation battles are played against the random baseline. Their mean return and one representative Showdown replay are logged to W&B.
+Every `--evaluation-interval-cycles` curriculum cycles, the current reservoir leader plays `--evaluation-episodes` deterministic battles in one isolated environment. Mean return and one representative Showdown replay are logged to W&B without changing the training environments. Set the interval to zero to disable periodic evaluation. The same evaluation runs once more for the final champion after training.
 
 ## Current scope
 

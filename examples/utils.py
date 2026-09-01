@@ -572,16 +572,27 @@ class WandbEvaluationLogger:
     def log(self, label: str, evaluation: int, mean_return: float, parameters: dict, replay_paths: tuple[Path, ...], **metrics) -> None:
         if self.run is None:
             return
-        values = {"evaluation/index": evaluation, "evaluation/mean_return": mean_return, "evaluation/label": label, "evaluation/team": parameters, **metrics}
+        team_json = json.dumps(parameters, sort_keys=True, separators=(",", ":"), default=str)
+        values = {
+            "evaluation/index": evaluation, "evaluation/mean_return": mean_return, "evaluation/label": label,
+            "evaluation/team_json": team_json, **metrics,
+        }
         if replay_paths:
             values["evaluation/replay"] = self.wandb.Html(replay_paths[0].read_text(encoding="utf-8"), inject=False)
         with self.lock:
             self.run.log(values)
-            if replay_paths:
-                artifact = self.wandb.Artifact(f"{self.run.id}-{label}-replays", type="evaluation-replays")
-                for replay_path in replay_paths:
-                    artifact.add_file(str(replay_path))
-                self.run.log_artifact(artifact)
+            self.run.summary["evaluation/latest_team_json"] = team_json
+            self.run.summary["evaluation/latest_team_label"] = label
+            if label == "final":
+                self.run.summary["evaluation/final_team_json"] = team_json
+            if replay_paths and label == "final":
+                try:
+                    artifact = self.wandb.Artifact(f"{self.run.id}-{label}-replays", type="evaluation-replays")
+                    for replay_path in replay_paths:
+                        artifact.add_file(str(replay_path))
+                    self.run.log_artifact(artifact)
+                except Exception as error:
+                    print(f"wandb_artifact=status_failed label={label} error={error}", flush=True)
 
     def log_training(self, label: str, evaluation: int, timesteps: int, metrics: dict, round_index: int | None = None) -> None:
         if self.run is None:
@@ -613,8 +624,9 @@ class WandbEvaluationLogger:
             values = {
                 "optimization/label": label, "optimization/evaluation": evaluation, "optimization/completed": self.completed_evaluations,
                 "optimization/mean_return": mean_return, "optimization/best_return": best_return, "optimization/duration_s": duration,
-                "optimization/wall_time_s": time.monotonic() - self.started_at, "optimization/team": parameters,
-                "optimization/recommendation": recommendation,
+                "optimization/wall_time_s": time.monotonic() - self.started_at,
+                "optimization/team_json": json.dumps(parameters, sort_keys=True, separators=(",", ":"), default=str),
+                "optimization/recommendation_json": json.dumps(recommendation, sort_keys=True, separators=(",", ":"), default=str),
             }
             if round_index is not None:
                 values["optimization/round"] = round_index + 1
@@ -628,14 +640,17 @@ class WandbEvaluationLogger:
             if path.exists():
                 artifact.add_file(str(path))
         with self.lock:
-            self.run.log_artifact(artifact)
+            try:
+                self.run.log_artifact(artifact)
+            except Exception as error:
+                print(f"wandb_artifact=status_failed label={label} error={error}", flush=True)
 
     def log_final(self, best_return: float, recommendation: dict) -> None:
         if self.run is None:
             return
         with self.lock:
             self.run.summary["optimization/best_return"] = best_return
-            self.run.summary["optimization/recommendation"] = recommendation
+            self.run.summary["optimization/recommendation_json"] = json.dumps(recommendation, sort_keys=True, separators=(",", ":"), default=str)
 
     def finish(self) -> None:
         if self.run is not None:

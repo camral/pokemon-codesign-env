@@ -3,10 +3,12 @@
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
 import torch
+from stable_baselines3.common.callbacks import BaseCallback
 
 EXAMPLES_DIR = Path(__file__).resolve().parents[1] / "examples"
 if str(EXAMPLES_DIR) not in sys.path:
@@ -63,6 +65,104 @@ def make_search_config(format_config: FormatConfig) -> TeamSearchConfig:
     )
 
 
+class CycleRewardCallback(BaseCallback):
+    """Collect transition rewards and completed-episode returns for one curriculum cycle."""
+
+    def __init__(self):
+        super().__init__()
+        self.started_at = None
+        self.reward_sum = 0.0
+        self.reward_squared_sum = 0.0
+        self.reward_min = float("inf")
+        self.reward_max = float("-inf")
+        self.nonzero_rewards = 0
+        self.transitions = 0
+        self.episode_returns = []
+        self.episode_lengths = []
+        self.action_counts = None
+        self.legal_action_sum = 0
+        self.recovered_environments = 0
+        self.restarted_workers = set()
+
+    def _on_training_start(self) -> None:
+        self.started_at = time.monotonic()
+        self.action_counts = np.zeros(self.model.action_space.n, dtype=np.int64)
+
+    def _on_step(self) -> bool:
+        rewards = np.asarray(self.locals["rewards"], dtype=np.float64)
+        self.reward_sum += float(rewards.sum())
+        self.reward_squared_sum += float(np.square(rewards).sum())
+        self.reward_min = min(self.reward_min, float(rewards.min()))
+        self.reward_max = max(self.reward_max, float(rewards.max()))
+        self.nonzero_rewards += int(np.count_nonzero(rewards))
+        self.transitions += rewards.size
+        actions = np.asarray(self.locals["actions"], dtype=np.int64).reshape(-1)
+        self.action_counts += np.bincount(actions, minlength=self.action_counts.size)
+        observations = self.locals.get("new_obs")
+        if isinstance(observations, dict) and "action_mask" in observations:
+            self.legal_action_sum += int(np.asarray(observations["action_mask"]).sum())
+        for info in self.locals.get("infos", ()):
+            if "episode" in info:
+                self.episode_returns.append(float(info["episode"]["r"]))
+                self.episode_lengths.append(int(info["episode"]["l"]))
+            if info.get("sharded_worker_restarted"):
+                self.recovered_environments += 1
+                self.restarted_workers.add(info["sharded_worker_index"])
+        return True
+
+    def metrics(self) -> dict:
+        elapsed = max(time.monotonic() - self.started_at, 1e-9)
+        reward_mean = self.reward_sum / max(self.transitions, 1)
+        reward_variance = max(self.reward_squared_sum / max(self.transitions, 1) - reward_mean**2, 0.0)
+        metrics = {
+            "rl/reward/transition_mean": reward_mean,
+            "rl/reward/transition_std": reward_variance**0.5,
+            "rl/reward/transition_min": self.reward_min,
+            "rl/reward/transition_max": self.reward_max,
+            "rl/reward/transition_sum": self.reward_sum,
+            "rl/reward/nonzero_fraction": self.nonzero_rewards / max(self.transitions, 1),
+            "rl/reward/completed_episodes": len(self.episode_returns),
+            "rl/action/switch_fraction": float(self.action_counts[4:].sum()) / max(self.action_counts.sum(), 1),
+            "rl/action/legal_count_mean": self.legal_action_sum / max(self.transitions, 1),
+            "rl/recovery/environments": self.recovered_environments,
+            "rl/recovery/worker_restarts": len(self.restarted_workers),
+            "rl/performance/fps": self.transitions / elapsed,
+            "rl/performance/cycle_seconds": elapsed,
+        }
+        action_names = (
+            "move_slot_1", "move_slot_2", "move_slot_3", "move_slot_4",
+            "switch_slot_1", "switch_slot_2", "switch_slot_3", "switch_slot_4", "switch_slot_5", "switch_slot_6",
+        )
+        for action, count in enumerate(self.action_counts):
+            action_name = action_names[action] if action < len(action_names) else f"action_{action}"
+            metrics[f"rl/action/{action_name}_fraction"] = float(count) / max(self.action_counts.sum(), 1)
+        if self.episode_returns:
+            metrics["rl/reward/episode_return_mean"] = float(np.mean(self.episode_returns))
+            metrics["rl/reward/episode_return_min"] = float(np.min(self.episode_returns))
+            metrics["rl/reward/episode_return_max"] = float(np.max(self.episode_returns))
+            metrics["rl/episode/length_mean"] = float(np.mean(self.episode_lengths))
+            metrics["rl/episode/length_min"] = float(np.min(self.episode_lengths))
+            metrics["rl/episode/length_max"] = float(np.max(self.episode_lengths))
+        return metrics
+
+
+def q_diagnostics(model: MaskedDQN) -> dict:
+    """Summarize online and target Q estimates for the learner's latest state batch."""
+    observation_tensor, _ = model.policy.obs_to_tensor(model._last_obs)
+    with torch.no_grad():
+        online = model.q_net(observation_tensor).max(dim=1).values.detach().cpu().numpy()
+        target = model.q_net_target(observation_tensor).max(dim=1).values.detach().cpu().numpy()
+    return {
+        "rl/q/online_max_mean": float(np.mean(online)),
+        "rl/q/online_max_std": float(np.std(online)),
+        "rl/q/online_max_min": float(np.min(online)),
+        "rl/q/online_max_max": float(np.max(online)),
+        "rl/q/target_max_mean": float(np.mean(target)),
+        "rl/q/target_max_std": float(np.std(target)),
+        "rl/q/online_target_gap": float(np.mean(online - target)),
+    }
+
+
 def assign_candidate_batch(environment, population: TeamPopulation, candidates: list[TeamCandidate], seed: int) -> None:
     """Assign one candidate and trajectory-level move sampler to every vector slot."""
     for index, candidate in enumerate(candidates):
@@ -94,6 +194,35 @@ def select_reservoir(candidates: list[TeamCandidate], fitness: np.ndarray, size:
     return [candidates[int(index)] for index in indices]
 
 
+def evaluate_checkpoint(
+    model: MaskedDQN, args: argparse.Namespace, population: TeamPopulation, observation_encoder: HumanVisibleBattleEncoder,
+    champion: TeamCandidate, cycle: int, completed_steps: int, wandb_logger: WandbEvaluationLogger, label: str,
+) -> float:
+    """Evaluate the current champion in one isolated environment and log one replay."""
+    replay_dir = evaluation_replay_dir(args.output_dir, label)
+    previous_replays = set(replay_dir.glob("*.html"))
+    evaluation_accounts = evaluation_account_configurations("RandomPlayer", cycle)
+    evaluation_env = make_control_env(
+        RandomPlayerEnv,
+        population.trajectory_designer([champion], args.seed + cycle * args.num_envs),
+        observation_encoder,
+        save_replays=str(replay_dir),
+        server_configuration=server_configuration_for(args, args.num_envs),
+        challenge_timeout=args.challenge_timeout,
+        account_configuration1=evaluation_accounts[0],
+        account_configuration2=evaluation_accounts[1],
+    )
+    wandb_logger.log_system("evaluation_started", evaluation_episodes=args.evaluation_episodes, evaluation_cycle=cycle)
+    try:
+        mean_return = evaluate_controller(model, evaluation_env, args.evaluation_episodes)
+    finally:
+        evaluation_env.close()
+    replay_paths = collect_evaluation_replays(replay_dir, previous_replays)
+    wandb_logger.log(label, cycle, mean_return, champion.parameters, replay_paths, **{"evaluation/timesteps": completed_steps, "evaluation/cycle": cycle})
+    print(f"evaluation={label} cycle={cycle} timesteps={completed_steps} mean_return={mean_return:.3f}", flush=True)
+    return mean_return
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--total-steps", type=int, default=1_000_000, help="T: total controller transitions.")
@@ -106,6 +235,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--buffer-size", type=int, default=1_000_000)
     parser.add_argument("--gradient-steps", type=int, default=1)
     parser.add_argument("--evaluation-episodes", type=int, default=4)
+    parser.add_argument("--evaluation-interval-cycles", type=int, default=10, help="Evaluate every N curriculum cycles; zero disables periodic evaluation.")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--output-dir", type=Path, default=Path("runs/annealed_curriculum"))
     parser.add_argument("--launch-server", action="store_true")
@@ -124,6 +254,8 @@ def validate_args(args: argparse.Namespace) -> None:
     for name in ("total_steps", "state_samples", "rollout_steps", "gradient_steps", "evaluation_episodes"):
         if getattr(args, name) < 1:
             raise ValueError(f"--{name.replace('_', '-')} must be at least one")
+    if args.evaluation_interval_cycles < 0:
+        raise ValueError("--evaluation-interval-cycles cannot be negative")
     cycle_steps = args.num_envs * args.rollout_steps
     phase_one_steps = round(args.total_steps * args.codesign_fraction)
     if args.total_steps % cycle_steps:
@@ -178,6 +310,7 @@ def train(args: argparse.Namespace, wandb_logger: WandbEvaluationLogger) -> None
     initial_rollout = True
     practice_initialized = False
     cycle = 0
+    cumulative_reward = 0.0
     wandb_logger.log_system("curriculum_initialized", evaluation_batch_size=len(candidates), reservoir_size=len(reservoir))
 
     try:
@@ -205,8 +338,10 @@ def train(args: argparse.Namespace, wandb_logger: WandbEvaluationLogger) -> None
             assign_reservoir(environment, population, reservoir, args.seed + (cycle + 1) * args.num_envs, args.num_envs)
             model._last_obs = environment.reset()
             steps = min(cycle_steps, args.total_steps - completed_steps)
-            model.learn(total_timesteps=steps, reset_num_timesteps=False, progress_bar=args.progress)
+            reward_callback = CycleRewardCallback()
+            model.learn(total_timesteps=steps, reset_num_timesteps=False, progress_bar=args.progress, callback=reward_callback)
             completed_steps += steps
+            cumulative_reward += reward_callback.reward_sum
             initial_rollout = False
             training_metrics = {
                 "curriculum/cycle": cycle,
@@ -217,6 +352,14 @@ def train(args: argparse.Namespace, wandb_logger: WandbEvaluationLogger) -> None
                 "curriculum/fitness_min": float(np.min(fitness)),
                 "curriculum/fitness_mean": float(np.mean(fitness)),
                 "curriculum/fitness_max": float(np.max(fitness)),
+                "rl/reward/cumulative": cumulative_reward,
+                "rl/exploration/rate": model.exploration_rate,
+                "rl/optimization/gradient_updates": model._n_updates,
+                "rl/optimization/learning_rate": float(model.lr_schedule(model._current_progress_remaining)),
+                "rl/replay_buffer/size": model.replay_buffer.size(),
+                "rl/replay_buffer/fill_fraction": model.replay_buffer.size() / model.buffer_size,
+                **q_diagnostics(model),
+                **reward_callback.metrics(),
             }
             for name, value in model.logger.name_to_value.items():
                 if isinstance(value, (int, float, np.integer, np.floating)):
@@ -225,6 +368,10 @@ def train(args: argparse.Namespace, wandb_logger: WandbEvaluationLogger) -> None
             if args.verbose:
                 print(f"steps={completed_steps}/{args.total_steps} phase={phase} reservoir={len(reservoir)} mutation={mutation_probability:.4f}", flush=True)
             cycle += 1
+            if args.evaluation_interval_cycles and cycle % args.evaluation_interval_cycles == 0 and completed_steps < args.total_steps:
+                evaluate_checkpoint(
+                    model, args, population, observation_encoder, reservoir[0], cycle, completed_steps, wandb_logger, f"cycle-{cycle}"
+                )
         if not practice_initialized:
             fitness = estimate_fitness(model, environment, population, reservoir, args.state_samples, args.seed + cycle * args.num_envs)
             reservoir = select_reservoir(reservoir, fitness, 1)
@@ -238,30 +385,10 @@ def train(args: argparse.Namespace, wandb_logger: WandbEvaluationLogger) -> None
     (args.output_dir / "champion.json").write_text(json.dumps(reservoir[0].parameters, indent=2) + "\n", encoding="utf-8")
     champion_team = population.trajectory_designer(reservoir, args.seed + cycle * args.num_envs).yield_team()
     (args.output_dir / "champion.team").write_text(champion_team + "\n", encoding="utf-8")
-    wandb_logger.log_final(float(np.max(fitness)), reservoir[0].parameters)
     wandb_logger.log_checkpoint(
         "final", (args.output_dir / "controller.zip", args.output_dir / "champion.json", args.output_dir / "champion.team")
     )
-    replay_dir = evaluation_replay_dir(args.output_dir, "final")
-    previous_replays = set(replay_dir.glob("*.html"))
-    evaluation_accounts = evaluation_account_configurations("RandomPlayer", cycle)
-    evaluation_env = make_control_env(
-        RandomPlayerEnv,
-        population.trajectory_designer(reservoir, args.seed + cycle * args.num_envs),
-        observation_encoder,
-        save_replays=str(replay_dir),
-        server_configuration=server_configuration_for(args, args.num_envs),
-        challenge_timeout=args.challenge_timeout,
-        account_configuration1=evaluation_accounts[0],
-        account_configuration2=evaluation_accounts[1],
-    )
-    wandb_logger.log_system("evaluation_started", evaluation_episodes=args.evaluation_episodes)
-    try:
-        mean_return = evaluate_controller(model, evaluation_env, args.evaluation_episodes)
-    finally:
-        evaluation_env.close()
-    replay_paths = collect_evaluation_replays(replay_dir, previous_replays)
-    wandb_logger.log("final", cycle, mean_return, reservoir[0].parameters, replay_paths, **{"evaluation/timesteps": completed_steps})
+    mean_return = evaluate_checkpoint(model, args, population, observation_encoder, reservoir[0], cycle, completed_steps, wandb_logger, "final")
     wandb_logger.log_final(mean_return, reservoir[0].parameters)
     wandb_logger.log_system("training_complete", completed_steps=completed_steps, curriculum_cycles=cycle)
     print(f"evaluation_mean_return={mean_return:.3f} champion={reservoir[0].parameters}", flush=True)

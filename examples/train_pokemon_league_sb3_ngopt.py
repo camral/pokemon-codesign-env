@@ -310,20 +310,23 @@ def main() -> None:
             previous_replays = set(replay_dir.glob("*.html"))
             evaluation_accounts = evaluation_account_configurations("LeagueOpponent", completed_rollouts)
             evaluation_seed = args.seed + population_evaluations + completed_rollouts
-            evaluation_env = make_league_env(
-                make_team(search_config, recommendation, evaluation_seed), observation_encoder,
-                None if args.random_league else args.generation, args.random_league, args.difficulty,
-                server_configuration=server_configuration_for(args, args.num_envs), challenge_timeout=args.challenge_timeout,
-                save_replays=str(replay_dir), account_configuration1=evaluation_accounts[0], account_configuration2=evaluation_accounts[1],
-            )
+            def evaluation_env_factory(episode: int):
+                return make_league_env(
+                    make_team(search_config, recommendation, evaluation_seed + episode), observation_encoder,
+                    None if args.random_league else args.generation, args.random_league, args.difficulty,
+                    server_configuration=server_configuration_for(args, args.num_envs), challenge_timeout=args.challenge_timeout,
+                    save_replays=str(replay_dir), account_configuration1=evaluation_accounts[0], account_configuration2=evaluation_accounts[1],
+                )
             if args.verbose:
                 print(f"status=evaluating rollout={completed_rollouts} timesteps={timesteps} episodes={args.evaluation_episodes}", flush=True)
-            try:
-                mean_return = evaluate_controller(current_model, evaluation_env, args.evaluation_episodes)
-            finally:
-                evaluation_env.close()
+            mean_return, timed_out_episodes = evaluate_controller(
+                current_model, evaluation_env_factory, args.evaluation_episodes, args.evaluation_timeout, args.evaluation_timeout_return
+            )
             replay_paths = collect_evaluation_replays(replay_dir, previous_replays)
-            evaluation_metrics = {"evaluation/timesteps": timesteps, "evaluation/rollout": completed_rollouts}
+            evaluation_metrics = {
+                "evaluation/timesteps": timesteps, "evaluation/rollout": completed_rollouts,
+                "evaluation/timed_out_episodes": timed_out_episodes,
+            }
             wandb_logger.log(label, completed_rollouts, mean_return, recommendation, replay_paths, **evaluation_metrics)
             print(f"evaluation_rollout={completed_rollouts} timesteps={timesteps} mean_return={mean_return:.3f}", flush=True)
 
@@ -344,20 +347,20 @@ def main() -> None:
         replay_dir = evaluation_replay_dir(args.output_dir, "final")
         previous_replays = set(replay_dir.glob("*.html"))
         evaluation_accounts = evaluation_account_configurations("LeagueOpponent", 0)
-        evaluation_env = make_league_env(
-            make_team(search_config, recommendation, args.seed + population_evaluations), observation_encoder,
-            None if args.random_league else args.generation, args.random_league, args.difficulty,
-            server_configuration=server_configuration_for(args, args.num_envs), challenge_timeout=args.challenge_timeout, save_replays=str(replay_dir),
-            account_configuration1=evaluation_accounts[0], account_configuration2=evaluation_accounts[1],
+        def evaluation_env_factory(episode: int):
+            return make_league_env(
+                make_team(search_config, recommendation, args.seed + population_evaluations + episode), observation_encoder,
+                None if args.random_league else args.generation, args.random_league, args.difficulty,
+                server_configuration=server_configuration_for(args, args.num_envs), challenge_timeout=args.challenge_timeout,
+                save_replays=str(replay_dir), account_configuration1=evaluation_accounts[0], account_configuration2=evaluation_accounts[1],
+            )
+        mean_return, timed_out_episodes = evaluate_controller(
+            model, evaluation_env_factory, args.evaluation_episodes, args.evaluation_timeout, args.evaluation_timeout_return
         )
-        try:
-            mean_return = evaluate_controller(model, evaluation_env, args.evaluation_episodes)
-        finally:
-            evaluation_env.close()
         replay_paths = collect_evaluation_replays(replay_dir, previous_replays)
         model.save(args.output_dir / "best_controller")
         (args.output_dir / "best_team.json").write_text(json.dumps(recommendation, indent=2) + "\n", encoding="utf-8")
-        wandb_logger.log("final", rollout_count - 1, mean_return, recommendation, replay_paths)
+        wandb_logger.log("final", rollout_count - 1, mean_return, recommendation, replay_paths, **{"evaluation/timed_out_episodes": timed_out_episodes})
         wandb_logger.log_final(mean_return, recommendation)
         wandb_logger.log_checkpoint(
             "final", (args.output_dir / "best_controller.zip", args.output_dir / "best_team.json", args.output_dir / "observation_schema.json")

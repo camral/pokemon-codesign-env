@@ -40,6 +40,7 @@ from pokemon_codesign_env.configs import (
 )
 from pokemon_codesign_env.envs import MaxBasePowerPlayerEnv, RandomPlayerEnv, SimpleHeuristicsPlayerEnv
 from pokemon_codesign_env.envs.base import BaselineOpponentEnv
+from pokemon_codesign_env.evaluation import evaluate_isolated
 from pokemon_codesign_env.observations import HumanVisibleBattleEncoder
 from pokemon_codesign_env.scaling import ShowdownClusterConfig, ShowdownEndpoint, managed_showdown_cluster
 from pokemon_codesign_env.sharded_vec_env import ShardedVecEnv
@@ -392,6 +393,8 @@ def add_compute_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--challenge-timeout", type=float, default=60.0)
     parser.add_argument("--step-timeout", type=float, default=60.0, help="Restart a stalled sharded worker after this many seconds.")
     parser.add_argument("--step-timeout-reward", type=float, default=0.0, help="Reward returned for transitions recovered after a worker timeout.")
+    parser.add_argument("--evaluation-timeout", type=float, default=200.0, help="Terminate an evaluation episode after this many seconds.")
+    parser.add_argument("--evaluation-timeout-return", type=float, default=-10.0, help="Return assigned to a timed-out evaluation episode.")
     parser.add_argument("--rollout-steps", type=int, default=256)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--profile-gpu", action="store_true")
@@ -414,7 +417,8 @@ def validate_compute_arguments(args: argparse.Namespace) -> None:
     """Reject invalid parallelism and PPO buffer configurations early."""
     defaults = {"envs_per_worker": 32, "telemetry_log_interval": 1_000, "showdown_shards": 1}
     for name in (
-        "num_envs", "envs_per_worker", "reset_retries", "challenge_timeout", "step_timeout", "rollout_steps", "batch_size", "gpu_log_interval",
+        "num_envs", "envs_per_worker", "reset_retries", "challenge_timeout", "step_timeout", "evaluation_timeout", "rollout_steps", "batch_size",
+        "gpu_log_interval",
         "telemetry_log_interval",
         "showdown_shards", "ppo_timesteps", "evaluation_episodes",
     ):
@@ -895,24 +899,10 @@ def make_control_training_env(
     )
 
 
-def evaluate_controller(model: PPO, env, episodes: int) -> float:
-    """Return the mean shaped episode return using deterministic PPO actions."""
-    episode_returns = []
-
-    for _ in range(episodes):
-        observation, _ = env.reset()
-        terminated = False
-        truncated = False
-        episode_return = 0.0
-
-        while not terminated and not truncated:
-            action, _ = model.predict(observation, deterministic=True)
-            observation, reward, terminated, truncated, _ = env.step(action)
-            episode_return += float(reward)
-
-        episode_returns.append(episode_return)
-
-    return float(np.mean(episode_returns))
+def evaluate_controller(model: PPO, env_factory, episodes: int, timeout: float, timeout_return: float = -10.0) -> tuple[float, int]:
+    """Adapt deterministic SB3 inference to the generic isolated evaluator."""
+    result = evaluate_isolated(env_factory, lambda observation: model.predict(observation, deterministic=True)[0], episodes, timeout, timeout_return)
+    return result.mean_return, result.timed_out_episodes
 
 
 def evaluate_vector_controller(model: PPO, env: VecEnv, episodes: int) -> float:
@@ -1071,20 +1061,23 @@ def run_experiment(
         previous_replays = set(replay_dir.glob("*.html"))
         evaluation_accounts = evaluation_account_configurations(EVALUATION_OPPONENT_NAMES[environment_class], completed_rollouts)
         evaluation_seed = args.seed + population_evaluations + completed_rollouts
-        evaluation_env = make_control_env(
-            environment_class, make_team(learner_config, recommendation, evaluation_seed), observation_encoder,
-            opponent_team=None if opponent_team_pool is None else opponent_team_pool.builder(evaluation_seed),
-            server_configuration=server_configuration_for(args, args.num_envs), challenge_timeout=args.challenge_timeout, save_replays=str(replay_dir),
-            account_configuration1=evaluation_accounts[0], account_configuration2=evaluation_accounts[1],
-        )
+        def evaluation_env_factory(episode: int):
+            seed = evaluation_seed + episode
+            return make_control_env(
+                environment_class, make_team(learner_config, recommendation, seed), observation_encoder,
+                opponent_team=None if opponent_team_pool is None else opponent_team_pool.builder(seed),
+                server_configuration=server_configuration_for(args, args.num_envs), challenge_timeout=args.challenge_timeout,
+                save_replays=str(replay_dir), account_configuration1=evaluation_accounts[0], account_configuration2=evaluation_accounts[1],
+            )
         if args.verbose:
             print(f"status=evaluating rollout={completed_rollouts} timesteps={timesteps} episodes={args.evaluation_episodes}", flush=True)
-        try:
-            mean_return = evaluate_controller(current_model, evaluation_env, args.evaluation_episodes)
-        finally:
-            evaluation_env.close()
+        mean_return, timed_out_episodes = evaluate_controller(
+            current_model, evaluation_env_factory, args.evaluation_episodes, args.evaluation_timeout, args.evaluation_timeout_return
+        )
         replay_paths = collect_evaluation_replays(replay_dir, previous_replays)
-        evaluation_metrics = {"evaluation/timesteps": timesteps, "evaluation/rollout": completed_rollouts}
+        evaluation_metrics = {
+            "evaluation/timesteps": timesteps, "evaluation/rollout": completed_rollouts, "evaluation/timed_out_episodes": timed_out_episodes,
+        }
         wandb_logger.log(label, completed_rollouts, mean_return, recommendation, replay_paths, **evaluation_metrics)
         print(f"evaluation_rollout={completed_rollouts} timesteps={timesteps} mean_return={mean_return:.3f}", flush=True)
 
@@ -1105,20 +1098,21 @@ def run_experiment(
     replay_dir = evaluation_replay_dir(args.output_dir, "final")
     previous_replays = set(replay_dir.glob("*.html"))
     evaluation_accounts = evaluation_account_configurations(EVALUATION_OPPONENT_NAMES[environment_class], 0)
-    evaluation_env = make_control_env(
-        environment_class, make_team(learner_config, recommendation, args.seed + population_evaluations), observation_encoder,
-        opponent_team=None if opponent_team_pool is None else opponent_team_pool.builder(args.seed + population_evaluations),
-        server_configuration=server_configuration_for(args, args.num_envs), challenge_timeout=args.challenge_timeout, save_replays=str(replay_dir),
-        account_configuration1=evaluation_accounts[0], account_configuration2=evaluation_accounts[1],
+    def evaluation_env_factory(episode: int):
+        seed = args.seed + population_evaluations + episode
+        return make_control_env(
+            environment_class, make_team(learner_config, recommendation, seed), observation_encoder,
+            opponent_team=None if opponent_team_pool is None else opponent_team_pool.builder(seed),
+            server_configuration=server_configuration_for(args, args.num_envs), challenge_timeout=args.challenge_timeout,
+            save_replays=str(replay_dir), account_configuration1=evaluation_accounts[0], account_configuration2=evaluation_accounts[1],
+        )
+    mean_return, timed_out_episodes = evaluate_controller(
+        model, evaluation_env_factory, args.evaluation_episodes, args.evaluation_timeout, args.evaluation_timeout_return
     )
-    try:
-        mean_return = evaluate_controller(model, evaluation_env, args.evaluation_episodes)
-    finally:
-        evaluation_env.close()
     replay_paths = collect_evaluation_replays(replay_dir, previous_replays)
     model.save(args.output_dir / "best_controller")
     (args.output_dir / "best_team.json").write_text(json.dumps(recommendation, indent=2) + "\n")
-    wandb_logger.log("final", rollout_count - 1, mean_return, recommendation, replay_paths)
+    wandb_logger.log("final", rollout_count - 1, mean_return, recommendation, replay_paths, **{"evaluation/timed_out_episodes": timed_out_episodes})
     wandb_logger.log_final(mean_return, recommendation)
     wandb_logger.log_checkpoint(
         "final", (args.output_dir / "best_controller.zip", args.output_dir / "best_team.json", args.output_dir / "observation_schema.json")

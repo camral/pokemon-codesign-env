@@ -274,32 +274,34 @@ def main() -> None:
             def evaluate_periodically(current_model: PPO, completed_rollouts: int, timesteps: int) -> None:
                 recommendation = decode_ngopt_parameter_values(optimizer.provide_recommendation().value, *get_ngopt_parameter_choices(search_config))
                 evaluation_seed = population_seed + population_evaluations + completed_rollouts
-                learner_team = make_team(search_config, recommendation, evaluation_seed)
-                opponent_team = None if champion_parameters is None else make_team(search_config, champion_parameters, evaluation_seed + 1)
                 evaluation_label = f"round-{round_index + 1}-rollout-{completed_rollouts}"
                 replay_dir = evaluation_replay_dir(args.output_dir, evaluation_label)
                 previous_replays = set(replay_dir.glob("*.html"))
                 opponent_name = "RandomPlayer" if champion_controller is None else "SelfPlayOpponent"
                 evaluation_index = round_index * rollout_count + completed_rollouts
                 evaluation_accounts = evaluation_account_configurations(opponent_name, evaluation_index)
-                evaluation_env = make_env(
-                    learner_team, observation_encoder, champion_controller, opponent_team, args.opponent_device,
-                    random_team=None if random_team_pool is None else random_team_pool.builder(evaluation_seed), save_replays=str(replay_dir),
-                    server_configuration=server_configuration_for(args, args.num_envs), challenge_timeout=args.challenge_timeout,
-                    account_configuration1=evaluation_accounts[0], account_configuration2=evaluation_accounts[1],
-                )
+                def evaluation_env_factory(episode: int):
+                    seed = evaluation_seed + episode
+                    learner_team = make_team(search_config, recommendation, seed)
+                    opponent_team = None if champion_parameters is None else make_team(search_config, champion_parameters, seed + 1)
+                    return make_env(
+                        learner_team, observation_encoder, champion_controller, opponent_team, args.opponent_device,
+                        random_team=None if random_team_pool is None else random_team_pool.builder(seed), save_replays=str(replay_dir),
+                        server_configuration=server_configuration_for(args, args.num_envs), challenge_timeout=args.challenge_timeout,
+                        account_configuration1=evaluation_accounts[0], account_configuration2=evaluation_accounts[1],
+                    )
                 if args.verbose:
                     print(
                         f"status=evaluating round={round_index + 1} rollout={completed_rollouts} timesteps={timesteps} "
                         f"episodes={args.evaluation_episodes}", flush=True,
                     )
-                try:
-                    mean_return = evaluate_controller(current_model, evaluation_env, args.evaluation_episodes)
-                finally:
-                    evaluation_env.close()
+                mean_return, timed_out_episodes = evaluate_controller(
+                    current_model, evaluation_env_factory, args.evaluation_episodes, args.evaluation_timeout, args.evaluation_timeout_return
+                )
                 replay_paths = collect_evaluation_replays(replay_dir, previous_replays)
                 evaluation_metrics = {
                     "evaluation/round": round_index + 1, "evaluation/rollout": completed_rollouts, "evaluation/timesteps": timesteps,
+                    "evaluation/timed_out_episodes": timed_out_episodes,
                 }
                 wandb_logger.log(evaluation_label, evaluation_index, mean_return, recommendation, replay_paths, **evaluation_metrics)
                 print(f"evaluation_round={round_index + 1} rollout={completed_rollouts} timesteps={timesteps} mean_return={mean_return:.3f}", flush=True)
@@ -323,26 +325,26 @@ def main() -> None:
 
             previous_champion_parameters = champion_parameters
             champion_parameters = decode_ngopt_parameter_values(optimizer.provide_recommendation().value, *get_ngopt_parameter_choices(search_config))
-            learner_team = make_team(search_config, champion_parameters, population_seed + population_evaluations)
-            champion_team = None if previous_champion_parameters is None else make_team(
-                search_config, previous_champion_parameters, population_seed + population_evaluations + 1
-            )
             replay_dir = evaluation_replay_dir(args.output_dir, f"round_{round_index + 1}_final")
             previous_replays = set(replay_dir.glob("*.html"))
             opponent_name = "RandomPlayer" if champion_controller is None else "SelfPlayOpponent"
             evaluation_accounts = evaluation_account_configurations(opponent_name, round_index)
-            evaluation_env = make_env(
-                learner_team, observation_encoder, champion_controller, champion_team, args.opponent_device,
-                random_team=None if random_team_pool is None else random_team_pool.builder(population_seed + population_evaluations),
-                save_replays=str(replay_dir), server_configuration=server_configuration_for(args, args.num_envs), challenge_timeout=args.challenge_timeout,
-                account_configuration1=evaluation_accounts[0], account_configuration2=evaluation_accounts[1],
+            def evaluation_env_factory(episode: int):
+                seed = population_seed + population_evaluations + episode
+                learner_team = make_team(search_config, champion_parameters, seed)
+                champion_team = None if previous_champion_parameters is None else make_team(search_config, previous_champion_parameters, seed + 1)
+                return make_env(
+                    learner_team, observation_encoder, champion_controller, champion_team, args.opponent_device,
+                    random_team=None if random_team_pool is None else random_team_pool.builder(seed), save_replays=str(replay_dir),
+                    server_configuration=server_configuration_for(args, args.num_envs), challenge_timeout=args.challenge_timeout,
+                    account_configuration1=evaluation_accounts[0], account_configuration2=evaluation_accounts[1],
+                )
+            round_return, timed_out_episodes = evaluate_controller(
+                round_model, evaluation_env_factory, args.evaluation_episodes, args.evaluation_timeout, args.evaluation_timeout_return
             )
-            try:
-                round_return = evaluate_controller(round_model, evaluation_env, args.evaluation_episodes)
-            finally:
-                evaluation_env.close()
             replay_paths = collect_evaluation_replays(replay_dir, previous_replays)
-            wandb_logger.log(label, round_index, round_return, champion_parameters, replay_paths, **{"evaluation/round": round_index + 1})
+            evaluation_metrics = {"evaluation/round": round_index + 1, "evaluation/timed_out_episodes": timed_out_episodes}
+            wandb_logger.log(label, round_index, round_return, champion_parameters, replay_paths, **evaluation_metrics)
             round_dir = args.output_dir / f"round_{round_index + 1}"
             round_dir.mkdir(parents=True, exist_ok=True)
             round_model.save(round_dir / "controller")

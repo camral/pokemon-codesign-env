@@ -30,7 +30,6 @@ if __package__:
         RetryingTeamDesigner,
         RolloutTeamOptimizerCallback,
         WandbEvaluationLogger,
-        TEAM_SIZE,
         add_compute_arguments,
         begin_startup_stage,
         collect_evaluation_replays,
@@ -62,7 +61,6 @@ else:
         RetryingTeamDesigner,
         RolloutTeamOptimizerCallback,
         WandbEvaluationLogger,
-        TEAM_SIZE,
         add_compute_arguments,
         begin_startup_stage,
         collect_evaluation_replays,
@@ -264,7 +262,16 @@ def main() -> None:
                 )
             label = f"round-{round_index + 1}-codesign"
             team_optimizer_callback = RolloutTeamOptimizerCallback(
-                optimizer, search_config, candidates, parameters, population_seed, args.ppo_timesteps, wandb_logger, label, round_index
+                optimizer,
+                search_config,
+                candidates,
+                parameters,
+                population_seed,
+                args.ppo_timesteps,
+                evaluation_episodes=args.optimizer_evaluation_episodes,
+                wandb_logger=wandb_logger,
+                label=label,
+                round_index=round_index,
             )
             round_model = PPO(
                 MaskedActorCriticPolicy, training_env, n_steps=args.rollout_steps, batch_size=args.batch_size, learning_rate=3e-4,

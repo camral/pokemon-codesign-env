@@ -32,20 +32,31 @@ from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecEnv, VecMonitor
 
 from pokemon_codesign_env.configs import (
-    AttributeMode,
     FormatConfig,
     ObservationConfig,
-    SelectionMode,
     TeamSearchConfig,
 )
-from pokemon_codesign_env.envs import MaxBasePowerPlayerEnv, RandomPlayerEnv, SimpleHeuristicsPlayerEnv
+from pokemon_codesign_env.baseline_adapters import (
+    TeamDesignVectorAdapter,
+    compile_candidates,
+    evaluate_candidate_population,
+    make_all_attribute_search_config,
+)
+from pokemon_codesign_env.envs import (
+    MaxBasePowerPlayerEnv,
+    RandomPlayerEnv,
+    SimpleHeuristicsPlayerEnv,
+)
 from pokemon_codesign_env.envs.base import BaselineOpponentEnv
 from pokemon_codesign_env.evaluation import evaluate_isolated
 from pokemon_codesign_env.observations import HumanVisibleBattleEncoder
-from pokemon_codesign_env.scaling import ShowdownClusterConfig, ShowdownEndpoint, managed_showdown_cluster
+from pokemon_codesign_env.scaling import (
+    ShowdownClusterConfig,
+    managed_showdown_cluster,
+)
 from pokemon_codesign_env.sharded_vec_env import ShardedVecEnv
-from pokemon_codesign_env.team_pool import RandomTeamPool, validate_team_batch
-from pokemon_codesign_env.team_designer import BatchedTeamDesigner, TeamDesigner
+from pokemon_codesign_env.team_pool import RandomTeamPool
+from pokemon_codesign_env.team_designer import TeamDesigner
 
 TEAM_SIZE = 6
 OBSERVATION_CONFIG = ObservationConfig(team_size=TEAM_SIZE)
@@ -53,7 +64,11 @@ INVALID_CANDIDATE_LOSS = 1_000_000.0
 SHOWDOWN_HOST = "127.0.0.1"
 SHOWDOWN_PORT = 8000
 SERVER_STARTUP_TIMEOUT = 120.0
-ENVIRONMENTS = {"random": RandomPlayerEnv, "max-base-power": MaxBasePowerPlayerEnv, "simple-heuristics": SimpleHeuristicsPlayerEnv}
+ENVIRONMENTS = {
+    "random": RandomPlayerEnv,
+    "max-base-power": MaxBasePowerPlayerEnv,
+    "simple-heuristics": SimpleHeuristicsPlayerEnv,
+}
 EVALUATION_OPPONENT_NAMES = {
     RandomPlayerEnv: "RandomPlayer",
     MaxBasePowerPlayerEnv: "MaxPowerPlayer",
@@ -65,17 +80,24 @@ def begin_startup_stage(args: argparse.Namespace, wandb_logger, stage: str, **me
     """Report the beginning of a potentially slow startup stage."""
     if args.verbose:
         details = " ".join(f"{name}={value}" for name, value in metrics.items())
-        print(f"startup_stage={stage} status=starting{f' {details}' if details else ''}", flush=True)
+        print(
+            f"startup_stage={stage} status=starting{f' {details}' if details else ''}", flush=True
+        )
     wandb_logger.log_system(f"{stage}_starting", **metrics)
     return time.monotonic()
 
 
-def finish_startup_stage(args: argparse.Namespace, wandb_logger, stage: str, started_at: float, **metrics) -> None:
+def finish_startup_stage(
+    args: argparse.Namespace, wandb_logger, stage: str, started_at: float, **metrics
+) -> None:
     """Report completion and elapsed time for one startup stage."""
     duration = time.monotonic() - started_at
     if args.verbose:
         details = " ".join(f"{name}={value}" for name, value in metrics.items())
-        print(f"startup_stage={stage} status=ready duration_s={duration:.3f}{f' {details}' if details else ''}", flush=True)
+        print(
+            f"startup_stage={stage} status=ready duration_s={duration:.3f}{f' {details}' if details else ''}",
+            flush=True,
+        )
     wandb_logger.log_system(f"{stage}_ready", startup_stage_s=duration, **metrics)
 
 
@@ -87,8 +109,13 @@ def startup_stage(args: argparse.Namespace, wandb_logger, stage: str, **metrics)
         yield
     except Exception:
         if args.verbose:
-            print(f"startup_stage={stage} status=failed duration_s={time.monotonic() - started_at:.3f}", flush=True)
-        wandb_logger.log_system(f"{stage}_failed", startup_stage_s=time.monotonic() - started_at, **metrics)
+            print(
+                f"startup_stage={stage} status=failed duration_s={time.monotonic() - started_at:.3f}",
+                flush=True,
+            )
+        wandb_logger.log_system(
+            f"{stage}_failed", startup_stage_s=time.monotonic() - started_at, **metrics
+        )
         raise
     finish_startup_stage(args, wandb_logger, stage, started_at, **metrics)
 
@@ -103,7 +130,13 @@ class InitialResetCallback(BaseCallback):
         self.started_at = started_at
 
     def _on_training_start(self) -> None:
-        finish_startup_stage(self.args, self.wandb_logger, "initial_reset", self.started_at, environments=self.model.n_envs)
+        finish_startup_stage(
+            self.args,
+            self.wandb_logger,
+            "initial_reset",
+            self.started_at,
+            environments=self.model.n_envs,
+        )
 
     def _on_step(self) -> bool:
         return True
@@ -112,7 +145,14 @@ class InitialResetCallback(BaseCallback):
 class GPUStatsCallback(BaseCallback):
     """Periodically report CUDA utilization and allocator memory."""
 
-    def __init__(self, log_interval: int, wandb_logger=None, label: str | None = None, evaluation: int | None = None, round_index: int | None = None):
+    def __init__(
+        self,
+        log_interval: int,
+        wandb_logger=None,
+        label: str | None = None,
+        evaluation: int | None = None,
+        round_index: int | None = None,
+    ):
         super().__init__()
         self.log_interval = log_interval
         self._next_log = log_interval
@@ -127,7 +167,9 @@ class GPUStatsCallback(BaseCallback):
             print(f"training_device={device} gpu_profiling=unavailable")
             return
         properties = torch.cuda.get_device_properties(device)
-        print(f"training_device={device} gpu_name={properties.name} gpu_memory_mib={properties.total_memory / 2**20:.0f}")
+        print(
+            f"training_device={device} gpu_name={properties.name} gpu_memory_mib={properties.total_memory / 2**20:.0f}"
+        )
 
     def _on_step(self) -> bool:
         if self.num_timesteps < self._next_log:
@@ -151,10 +193,16 @@ class GPUStatsCallback(BaseCallback):
             f"reserved_mib={reserved:.0f} peak_mib={peak:.0f}"
         )
         if self.wandb_logger is not None:
-            metrics = {"gpu/memory_mib": allocated, "gpu/reserved_mib": reserved, "gpu/peak_mib": peak}
+            metrics = {
+                "gpu/memory_mib": allocated,
+                "gpu/reserved_mib": reserved,
+                "gpu/peak_mib": peak,
+            }
             if utilization is not None:
                 metrics["gpu/utilization_percent"] = utilization
-            self.wandb_logger.log_training(self.label, self.evaluation, self.num_timesteps, metrics, self.round_index)
+            self.wandb_logger.log_training(
+                self.label, self.evaluation, self.num_timesteps, metrics, self.round_index
+            )
         return True
 
 
@@ -180,8 +228,12 @@ class WandbRLCallback(BaseCallback):
         self._last_telemetry_at = self.started_at
         self._next_telemetry = self.model.n_envs
         self.wandb_logger.log_system(
-            "rollout_started", label=self.label, candidate=self.evaluation, ready_environments=self.model.n_envs,
-            rollout_size=self.model.n_envs * self.model.n_steps, round_index=self.round_index,
+            "rollout_started",
+            label=self.label,
+            candidate=self.evaluation,
+            ready_environments=self.model.n_envs,
+            rollout_size=self.model.n_envs * self.model.n_steps,
+            round_index=self.round_index,
         )
 
     def _log(self) -> None:
@@ -189,7 +241,9 @@ class WandbRLCallback(BaseCallback):
         for name, value in self.model.logger.name_to_value.items():
             if isinstance(value, (int, float, np.integer, np.floating)):
                 metrics[f"rl/{name}"] = float(value)
-        self.wandb_logger.log_training(self.label, self.evaluation, self.num_timesteps, metrics, self.round_index)
+        self.wandb_logger.log_training(
+            self.label, self.evaluation, self.num_timesteps, metrics, self.round_index
+        )
 
     def _on_step(self) -> bool:
         dones = self.locals.get("dones")
@@ -199,7 +253,9 @@ class WandbRLCallback(BaseCallback):
         recovered_infos = [info for info in infos if info.get("sharded_worker_restarted")]
         if recovered_infos:
             self.recovered_environments += len(recovered_infos)
-            self.restarted_workers += len({info["sharded_worker_index"] for info in recovered_infos})
+            self.restarted_workers += len(
+                {info["sharded_worker_index"] for info in recovered_infos}
+            )
         interval = self.wandb_logger.telemetry_log_interval
         if self.num_timesteps >= self._next_telemetry:
             now = time.monotonic()
@@ -208,13 +264,19 @@ class WandbRLCallback(BaseCallback):
             fps = (self.num_timesteps - self._last_telemetry_timesteps) / interval_elapsed
             rollout_size = self.model.n_envs * self.model.n_steps
             metrics = {
-                "rl/rollout/vector_steps": self.n_calls, "rl/rollout/transitions_per_second": self.num_timesteps / elapsed,
-                "rl/rollout/fps": fps, "rl/rollout/average_fps": self.num_timesteps / elapsed,
+                "rl/rollout/vector_steps": self.n_calls,
+                "rl/rollout/transitions_per_second": self.num_timesteps / elapsed,
+                "rl/rollout/fps": fps,
+                "rl/rollout/average_fps": self.num_timesteps / elapsed,
                 "rl/rollout/completed_episodes": self.completed_episodes,
-                "rl/rollout/buffer_fill": ((self.num_timesteps - 1) % rollout_size + 1) / rollout_size,
-                "rl/recovery/environments": self.recovered_environments, "rl/recovery/worker_restarts": self.restarted_workers,
+                "rl/rollout/buffer_fill": ((self.num_timesteps - 1) % rollout_size + 1)
+                / rollout_size,
+                "rl/recovery/environments": self.recovered_environments,
+                "rl/recovery/worker_restarts": self.restarted_workers,
             }
-            self.wandb_logger.log_training(self.label, self.evaluation, self.num_timesteps, metrics, self.round_index)
+            self.wandb_logger.log_training(
+                self.label, self.evaluation, self.num_timesteps, metrics, self.round_index
+            )
             self._last_telemetry_at = now
             self._last_telemetry_timesteps = self.num_timesteps
             self._next_telemetry = self.num_timesteps + interval
@@ -244,10 +306,18 @@ class TrainingProgressCallback(BaseCallback):
         from tqdm.auto import tqdm
 
         rollout_size = self.model.n_envs * self.model.n_steps
-        total_timesteps = ((self.requested_timesteps + rollout_size - 1) // rollout_size) * rollout_size
+        total_timesteps = (
+            (self.requested_timesteps + rollout_size - 1) // rollout_size
+        ) * rollout_size
         self.started_at = time.monotonic()
         self._last_measurement_at = self.started_at
-        self.progress = tqdm(total=total_timesteps, desc=self.label, unit="step", position=self.position, dynamic_ncols=True)
+        self.progress = tqdm(
+            total=total_timesteps,
+            desc=self.label,
+            unit="step",
+            position=self.position,
+            dynamic_ncols=True,
+        )
 
     def _on_step(self) -> bool:
         increment = self.num_timesteps - self.progress.n
@@ -256,9 +326,13 @@ class TrainingProgressCallback(BaseCallback):
         now = time.monotonic()
         measurement_elapsed = now - self._last_measurement_at
         if measurement_elapsed >= 1.0 or self.num_timesteps >= self.progress.total:
-            fps = (self.num_timesteps - self._last_measurement_timesteps) / max(measurement_elapsed, 1e-9)
+            fps = (self.num_timesteps - self._last_measurement_timesteps) / max(
+                measurement_elapsed, 1e-9
+            )
             average_fps = self.num_timesteps / max(now - self.started_at, 1e-9)
-            self.progress.set_postfix(fps=f"{fps:,.0f}", average_fps=f"{average_fps:,.0f}", refresh=False)
+            self.progress.set_postfix(
+                fps=f"{fps:,.0f}", average_fps=f"{average_fps:,.0f}", refresh=False
+            )
             self._last_measurement_at = now
             self._last_measurement_timesteps = self.num_timesteps
         return True
@@ -285,7 +359,9 @@ class PeriodicEvaluationCallback(BaseCallback):
         rollout_size = self.model.n_envs * self.model.n_steps
         completed_rollouts = self.num_timesteps // rollout_size
         should_skip = (
-            completed_rollouts == 0 or completed_rollouts >= self.total_rollouts or completed_rollouts % self.interval_rollouts
+            completed_rollouts == 0
+            or completed_rollouts >= self.total_rollouts
+            or completed_rollouts % self.interval_rollouts
             or completed_rollouts == self.last_evaluation_rollout
         )
         if should_skip:
@@ -294,9 +370,11 @@ class PeriodicEvaluationCallback(BaseCallback):
         self.last_evaluation_rollout = completed_rollouts
 
 
-def sample_team_population(optimizer, search_config: TeamSearchConfig, population_size: int, seed: int):
+def sample_team_population(
+    optimizer, search_config: TeamSearchConfig, population_size: int, seed: int
+):
     """Ask NGOpt for one valid packed team per environment."""
-    species_values, nature_values = get_ngopt_parameter_choices(search_config)
+    (team_adapter,) = get_ngopt_parameter_choices(search_config)
     candidates = []
     parameters = []
     teams = []
@@ -304,9 +382,13 @@ def sample_team_population(optimizer, search_config: TeamSearchConfig, populatio
     while len(teams) < population_size:
         needed = population_size - len(teams)
         proposed_candidates = [optimizer.ask() for _ in range(needed)]
-        proposed_parameters = [decode_ngopt_parameter_values(candidate.value, species_values, nature_values) for candidate in proposed_candidates]
+        proposed_parameters = [
+            decode_ngopt_parameter_values(candidate.value, team_adapter)
+            for candidate in proposed_candidates
+        ]
         unique_proposals = [
-            (candidate, values) for candidate, values in zip(proposed_candidates, proposed_parameters, strict=True)
+            (candidate, values)
+            for candidate, values in zip(proposed_candidates, proposed_parameters, strict=True)
             if team_species_are_trackable(values, search_config.format.generation)
         ]
         for candidate, values in zip(proposed_candidates, proposed_parameters, strict=True):
@@ -316,15 +398,17 @@ def sample_team_population(optimizer, search_config: TeamSearchConfig, populatio
             attempts += needed
             continue
         proposed_candidates, proposed_parameters = map(list, zip(*unique_proposals, strict=True))
-        proposed_teams = BatchedTeamDesigner.serialize_parameter_values(
-            search_config, proposed_parameters, [seed + attempts + index for index in range(len(proposed_parameters))]
+        compiled_candidates = compile_candidates(
+            team_adapter,
+            search_config,
+            proposed_parameters,
+            [seed + attempts + index for index in range(len(proposed_parameters))],
         )
-        errors = validate_team_batch(search_config.format.showdown_path, search_config.format.format_id, proposed_teams)
-        for candidate, values, team, error in zip(proposed_candidates, proposed_parameters, proposed_teams, errors, strict=True):
-            if error is None:
+        for candidate, compiled in zip(proposed_candidates, compiled_candidates, strict=True):
+            if compiled.valid:
                 candidates.append(candidate)
-                parameters.append(values)
-                teams.append(team)
+                parameters.append(compiled.parameters)
+                teams.append(compiled.packed_team)
             else:
                 optimizer.tell(candidate, INVALID_CANDIDATE_LOSS)
         attempts += needed
@@ -332,11 +416,20 @@ def sample_team_population(optimizer, search_config: TeamSearchConfig, populatio
 
 
 class RolloutTeamOptimizerCallback(BaseCallback):
-    """Score one NGOpt embodiment per environment and replace it every rollout."""
+    """Evaluate one NGOpt embodiment per environment and replace it every rollout."""
 
     def __init__(
-        self, optimizer, search_config: TeamSearchConfig, candidates: list, parameters: list[dict], seed: int, total_timesteps: int,
-        wandb_logger=None, label: str = "codesign", round_index: int | None = None,
+        self,
+        optimizer,
+        search_config: TeamSearchConfig,
+        candidates: list,
+        parameters: list[dict],
+        seed: int,
+        total_timesteps: int,
+        evaluation_episodes: int,
+        wandb_logger=None,
+        label: str = "codesign",
+        round_index: int | None = None,
     ):
         super().__init__()
         self.optimizer = optimizer
@@ -345,6 +438,7 @@ class RolloutTeamOptimizerCallback(BaseCallback):
         self.parameters = parameters
         self.seed = seed
         self.total_timesteps = total_timesteps
+        self.evaluation_episodes = evaluation_episodes
         self.wandb_logger = wandb_logger
         self.label = label
         self.round_index = round_index
@@ -361,21 +455,42 @@ class RolloutTeamOptimizerCallback(BaseCallback):
         return True
 
     def _on_rollout_end(self) -> None:
-        for candidate, parameters, rollout_return in zip(self.candidates, self.parameters, self.rollout_returns, strict=True):
-            self.optimizer.tell(candidate, -float(rollout_return))
-            if rollout_return > self.best_return:
-                self.best_return = float(rollout_return)
+        # The controller is unchanged while all candidates receive the same number
+        # of complete, deterministic evaluation battles.
+        evaluation_returns = evaluate_candidate_population(
+            self.model, self.training_env, self.evaluation_episodes
+        )
+        for candidate, parameters, evaluation_return in zip(
+            self.candidates, self.parameters, evaluation_returns, strict=True
+        ):
+            self.optimizer.tell(candidate, -float(evaluation_return))
+            if evaluation_return > self.best_return:
+                self.best_return = float(evaluation_return)
                 self.best_parameters = parameters
         if self.wandb_logger is not None:
-            self.wandb_logger.log_training(self.label, self.rollout_index, self.num_timesteps, {
-                "ngopt/rollout": self.rollout_index + 1, "ngopt/population_size": self.model.n_envs,
-                "ngopt/mean_return": float(np.mean(self.rollout_returns)), "ngopt/best_return": self.best_return,
-            }, self.round_index)
+            self.wandb_logger.log_training(
+                self.label,
+                self.rollout_index,
+                self.num_timesteps,
+                {
+                    "ngopt/rollout": self.rollout_index + 1,
+                    "ngopt/population_size": self.model.n_envs,
+                    "ngopt/mean_rollout_return": float(np.mean(self.rollout_returns)),
+                    "ngopt/mean_evaluation_return": float(np.mean(evaluation_returns)),
+                    "ngopt/best_return": self.best_return,
+                    "ngopt/evaluation_episodes_per_candidate": self.evaluation_episodes,
+                    "ngopt/controller_version_timesteps": self.num_timesteps,
+                },
+                self.round_index,
+            )
         self.rollout_index += 1
         if self.num_timesteps >= self.total_timesteps:
             return
         self.candidates, self.parameters, teams = sample_team_population(
-            self.optimizer, self.search_config, self.model.n_envs, self.seed + self.rollout_index * self.model.n_envs
+            self.optimizer,
+            self.search_config,
+            self.model.n_envs,
+            self.seed + self.rollout_index * self.model.n_envs,
         )
         for environment_index, team in enumerate(teams):
             self.training_env.env_method("set_learner_team", team, indices=environment_index)
@@ -385,20 +500,48 @@ class RolloutTeamOptimizerCallback(BaseCallback):
 
 def add_compute_arguments(parser: argparse.ArgumentParser) -> None:
     """Add shared PPO, vectorization, NGOpt, and accelerator options."""
-    parser.add_argument("--device", default="cpu", help="PyTorch device, for example cpu, cuda, cuda:6, mps, or auto.")
+    parser.add_argument(
+        "--device",
+        default="cpu",
+        help="PyTorch device, for example cpu, cuda, cuda:6, mps, or auto.",
+    )
     parser.add_argument("--num-envs", type=int, default=1)
     parser.add_argument("--vec-env", choices=("dummy", "subproc", "sharded"), default="dummy")
     parser.add_argument("--envs-per-worker", type=int, default=32)
     parser.add_argument("--reset-retries", type=int, default=3)
     parser.add_argument("--challenge-timeout", type=float, default=60.0)
-    parser.add_argument("--step-timeout", type=float, default=60.0, help="Restart a stalled sharded worker after this many seconds.")
-    parser.add_argument("--step-timeout-reward", type=float, default=0.0, help="Reward returned for transitions recovered after a worker timeout.")
-    parser.add_argument("--evaluation-timeout", type=float, default=200.0, help="Terminate an evaluation episode after this many seconds.")
-    parser.add_argument("--evaluation-timeout-return", type=float, default=-10.0, help="Return assigned to a timed-out evaluation episode.")
+    parser.add_argument(
+        "--step-timeout",
+        type=float,
+        default=60.0,
+        help="Restart a stalled sharded worker after this many seconds.",
+    )
+    parser.add_argument(
+        "--step-timeout-reward",
+        type=float,
+        default=0.0,
+        help="Reward returned for transitions recovered after a worker timeout.",
+    )
+    parser.add_argument(
+        "--evaluation-timeout",
+        type=float,
+        default=200.0,
+        help="Terminate an evaluation episode after this many seconds.",
+    )
+    parser.add_argument(
+        "--evaluation-timeout-return",
+        type=float,
+        default=-10.0,
+        help="Return assigned to a timed-out evaluation episode.",
+    )
     parser.add_argument("--rollout-steps", type=int, default=256)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--profile-gpu", action="store_true")
-    parser.add_argument("--progress", action="store_true", help="Display tqdm training progress with recent and average environment FPS.")
+    parser.add_argument(
+        "--progress",
+        action="store_true",
+        help="Display tqdm training progress with recent and average environment FPS.",
+    )
     parser.add_argument("--gpu-log-interval", type=int, default=1_000)
     parser.add_argument("--telemetry-log-interval", type=int, default=1_000)
     parser.add_argument("--showdown-host", default=SHOWDOWN_HOST)
@@ -417,10 +560,20 @@ def validate_compute_arguments(args: argparse.Namespace) -> None:
     """Reject invalid parallelism and PPO buffer configurations early."""
     defaults = {"envs_per_worker": 32, "telemetry_log_interval": 1_000, "showdown_shards": 1}
     for name in (
-        "num_envs", "envs_per_worker", "reset_retries", "challenge_timeout", "step_timeout", "evaluation_timeout", "rollout_steps", "batch_size",
+        "num_envs",
+        "envs_per_worker",
+        "reset_retries",
+        "challenge_timeout",
+        "step_timeout",
+        "evaluation_timeout",
+        "rollout_steps",
+        "batch_size",
         "gpu_log_interval",
         "telemetry_log_interval",
-        "showdown_shards", "ppo_timesteps", "evaluation_episodes",
+        "showdown_shards",
+        "ppo_timesteps",
+        "evaluation_episodes",
+        "optimizer_evaluation_episodes",
     ):
         if getattr(args, name, defaults.get(name, 1)) < 1:
             raise ValueError(f"--{name.replace('_', '-')} must be at least 1")
@@ -428,18 +581,26 @@ def validate_compute_arguments(args: argparse.Namespace) -> None:
     if rollout_size < 2 or args.batch_size < 2:
         raise ValueError("PPO requires a rollout buffer and --batch-size of at least 2")
     if args.batch_size > rollout_size:
-        raise ValueError(f"--batch-size ({args.batch_size}) cannot exceed the rollout buffer size ({args.num_envs} environments x {args.rollout_steps} steps)")
+        raise ValueError(
+            f"--batch-size ({args.batch_size}) cannot exceed the rollout buffer size ({args.num_envs} environments x {args.rollout_steps} steps)"
+        )
     if rollout_size % args.batch_size:
-        raise ValueError(f"--batch-size ({args.batch_size}) must divide the rollout buffer size ({rollout_size})")
+        raise ValueError(
+            f"--batch-size ({args.batch_size}) must divide the rollout buffer size ({rollout_size})"
+        )
     if getattr(args, "ppo_timesteps", rollout_size) < rollout_size:
-        raise ValueError(f"--ppo-timesteps must be at least one complete rollout ({rollout_size} = num_envs x rollout_steps)")
+        raise ValueError(
+            f"--ppo-timesteps must be at least one complete rollout ({rollout_size} = num_envs x rollout_steps)"
+        )
     for name in ("random_team_pool_size", "learner_team_pool_size"):
         if getattr(args, name, 0) < 0:
             raise ValueError(f"--{name.replace('_', '-')} cannot be negative")
     if getattr(args, "evaluation_interval_rollouts", 0) < 0:
         raise ValueError("--evaluation-interval-rollouts cannot be negative")
     ShowdownClusterConfig(
-        getattr(args, "showdown_host", SHOWDOWN_HOST), getattr(args, "showdown_base_port", SHOWDOWN_PORT), getattr(args, "showdown_shards", 1)
+        getattr(args, "showdown_host", SHOWDOWN_HOST),
+        getattr(args, "showdown_base_port", SHOWDOWN_PORT),
+        getattr(args, "showdown_shards", 1),
     )
 
 
@@ -456,15 +617,21 @@ def validate_device(device_name: str) -> None:
     device = torch.device(device_name)
     if device.type == "cuda":
         if not torch.cuda.is_available():
-            raise RuntimeError(f"CUDA device {device_name!r} was requested but this PyTorch build cannot use CUDA")
+            raise RuntimeError(
+                f"CUDA device {device_name!r} was requested but this PyTorch build cannot use CUDA"
+            )
         index = torch.cuda.current_device() if device.index is None else device.index
         if index >= torch.cuda.device_count():
-            raise ValueError(f"CUDA device {device_name!r} does not exist; {torch.cuda.device_count()} CUDA devices are available")
+            raise ValueError(
+                f"CUDA device {device_name!r} does not exist; {torch.cuda.device_count()} CUDA devices are available"
+            )
     if device.type == "mps" and not torch.backends.mps.is_available():
         raise RuntimeError("MPS was requested but is unavailable")
 
 
-def make_team(search_config, parameter_values: dict, seed: int, validate_teams: bool = True) -> "RetryingTeamDesigner":
+def make_team(
+    search_config, parameter_values: dict, seed: int, validate_teams: bool = True
+) -> "RetryingTeamDesigner":
     """Build one independently seeded copy of an optimized team."""
     team = RetryingTeamDesigner(search_config, validate_teams=validate_teams)
     team.set_optimizable_parameter_values(parameter_values)
@@ -473,15 +640,23 @@ def make_team(search_config, parameter_values: dict, seed: int, validate_teams: 
 
 
 def make_vector_env(
-    env_factories, vec_env: str, envs_per_worker: int = 32, reset_retries: int = 3, step_timeout: float = 60.0,
+    env_factories,
+    vec_env: str,
+    envs_per_worker: int = 32,
+    reset_retries: int = 3,
+    step_timeout: float = 60.0,
     step_timeout_reward: float = 0.0,
 ):
     """Create a monitored in-process or process-parallel SB3 vector environment."""
     if vec_env == "sharded":
         return VecMonitor(
             ShardedVecEnv(
-                env_factories, envs_per_worker=envs_per_worker, reset_retries=reset_retries, start_method="spawn",
-                step_timeout=step_timeout, step_timeout_reward=step_timeout_reward,
+                env_factories,
+                envs_per_worker=envs_per_worker,
+                reset_retries=reset_retries,
+                start_method="spawn",
+                step_timeout=step_timeout,
+                step_timeout_reward=step_timeout_reward,
             )
         )
     vector_class = DummyVecEnv if vec_env == "dummy" else SubprocVecEnv
@@ -498,8 +673,13 @@ def server_configuration_for(args: argparse.Namespace, environment_index: int):
 
 
 def make_training_callback(
-    args: argparse.Namespace, wandb_logger=None, label: str | None = None,
-    evaluation: int | None = None, round_index: int | None = None, team_optimizer_callback=None, periodic_evaluation_callback=None,
+    args: argparse.Namespace,
+    wandb_logger=None,
+    label: str | None = None,
+    evaluation: int | None = None,
+    round_index: int | None = None,
+    team_optimizer_callback=None,
+    periodic_evaluation_callback=None,
     initial_reset_started_at: float | None = None,
 ):
     """Create accelerator profiling and W&B callbacks for one PPO learner."""
@@ -509,7 +689,9 @@ def make_training_callback(
     if wandb_logger is not None and wandb_logger.run is not None:
         callbacks.append(WandbRLCallback(wandb_logger, label, evaluation, round_index))
     if args.profile_gpu:
-        callbacks.append(GPUStatsCallback(args.gpu_log_interval, wandb_logger, label, evaluation, round_index))
+        callbacks.append(
+            GPUStatsCallback(args.gpu_log_interval, wandb_logger, label, evaluation, round_index)
+        )
     if args.progress:
         callbacks.append(TrainingProgressCallback(args.ppo_timesteps, label or "training", 0))
     if team_optimizer_callback is not None:
@@ -537,10 +719,14 @@ def collect_evaluation_replays(replay_dir: Path, previous_replays: set[Path]) ->
     return tuple(list(unique_replays.values())[:1])
 
 
-def evaluation_account_configurations(opponent_name: str, evaluation: int, parallel: bool = False) -> tuple[AccountConfiguration, AccountConfiguration]:
+def evaluation_account_configurations(
+    opponent_name: str, evaluation: int, parallel: bool = False
+) -> tuple[AccountConfiguration, AccountConfiguration]:
     """Give a saved evaluation replay meaningful, collision-safe player names."""
     suffix = f"{evaluation + 1:X}" if parallel else ""
-    return AccountConfiguration(f"TrainingAgent{suffix}", None), AccountConfiguration(f"{opponent_name}{suffix}", None)
+    return AccountConfiguration(f"TrainingAgent{suffix}", None), AccountConfiguration(
+        f"{opponent_name}{suffix}", None
+    )
 
 
 class WandbEvaluationLogger:
@@ -558,35 +744,77 @@ class WandbEvaluationLogger:
         try:
             import wandb
         except ImportError:
-            raise ImportError("W&B logging requires the rl dependency: pip install -e '.[rl]'") from None
+            raise ImportError(
+                "W&B logging requires the rl dependency: pip install -e '.[rl]'"
+            ) from None
         self.wandb = wandb
         self.run = wandb.init(
-            project=args.wandb_project, entity=args.wandb_entity, group=args.wandb_group,
-            name=args.wandb_name, mode=args.wandb_mode, config=config, dir=str(args.output_dir),
+            project=args.wandb_project,
+            entity=args.wandb_entity,
+            group=args.wandb_group,
+            name=args.wandb_name,
+            mode=args.wandb_mode,
+            config=config,
+            dir=str(args.output_dir),
         )
-        self.run.log({
-            "system/status": "initialized", "system/wall_time_s": 0.0,
-            "system/requested_environments": args.num_envs, "system/showdown_shards": args.showdown_shards,
-        })
+        self.run.log(
+            {
+                "system/status": "initialized",
+                "system/wall_time_s": 0.0,
+                "system/requested_environments": args.num_envs,
+                "system/showdown_shards": args.showdown_shards,
+            }
+        )
 
-    def log(self, label: str, evaluation: int, mean_return: float, parameters: dict, replay_paths: tuple[Path, ...], **metrics) -> None:
+    def log(
+        self,
+        label: str,
+        evaluation: int,
+        mean_return: float,
+        parameters: dict,
+        replay_paths: tuple[Path, ...],
+        **metrics,
+    ) -> None:
         if self.run is None:
             return
-        values = {"evaluation/index": evaluation, "evaluation/mean_return": mean_return, "evaluation/label": label, "evaluation/team": parameters, **metrics}
+        values = {
+            "evaluation/index": evaluation,
+            "evaluation/mean_return": mean_return,
+            "evaluation/label": label,
+            "evaluation/team": parameters,
+            **metrics,
+        }
         if replay_paths:
-            values["evaluation/replay"] = self.wandb.Html(replay_paths[0].read_text(encoding="utf-8"), inject=False)
+            values["evaluation/replay"] = self.wandb.Html(
+                replay_paths[0].read_text(encoding="utf-8"), inject=False
+            )
         with self.lock:
             self.run.log(values)
             if replay_paths:
-                artifact = self.wandb.Artifact(f"{self.run.id}-{label}-replays", type="evaluation-replays")
+                artifact = self.wandb.Artifact(
+                    f"{self.run.id}-{label}-replays", type="evaluation-replays"
+                )
                 for replay_path in replay_paths:
                     artifact.add_file(str(replay_path))
                 self.run.log_artifact(artifact)
 
-    def log_training(self, label: str, evaluation: int, timesteps: int, metrics: dict, round_index: int | None = None) -> None:
+    def log_training(
+        self,
+        label: str,
+        evaluation: int,
+        timesteps: int,
+        metrics: dict,
+        round_index: int | None = None,
+    ) -> None:
         if self.run is None:
             return
-        values = {"rl/label": label, "rl/candidate": evaluation, "rl/timesteps": timesteps, "rl/wall_time_s": time.monotonic() - self.started_at, **metrics}
+        values = {
+            "rl/label": label,
+            "rl/candidate": evaluation,
+            "rl/timesteps": timesteps,
+            "rl/wall_time_s": time.monotonic() - self.started_at,
+            **metrics,
+        }
         if round_index is not None:
             values["rl/round"] = round_index + 1
         with self.lock:
@@ -596,24 +824,37 @@ class WandbEvaluationLogger:
         if self.run is None:
             return
         values = {
-            "system/status": status, "system/wall_time_s": time.monotonic() - self.started_at,
+            "system/status": status,
+            "system/wall_time_s": time.monotonic() - self.started_at,
             **{f"system/{name}": value for name, value in metrics.items()},
         }
         with self.lock:
             self.run.log(values)
 
     def log_optimization(
-        self, label: str, evaluation: int, mean_return: float, best_return: float, parameters: dict,
-        recommendation: dict, duration: float, round_index: int | None = None,
+        self,
+        label: str,
+        evaluation: int,
+        mean_return: float,
+        best_return: float,
+        parameters: dict,
+        recommendation: dict,
+        duration: float,
+        round_index: int | None = None,
     ) -> None:
         if self.run is None:
             return
         with self.lock:
             self.completed_evaluations += 1
             values = {
-                "optimization/label": label, "optimization/evaluation": evaluation, "optimization/completed": self.completed_evaluations,
-                "optimization/mean_return": mean_return, "optimization/best_return": best_return, "optimization/duration_s": duration,
-                "optimization/wall_time_s": time.monotonic() - self.started_at, "optimization/team": parameters,
+                "optimization/label": label,
+                "optimization/evaluation": evaluation,
+                "optimization/completed": self.completed_evaluations,
+                "optimization/mean_return": mean_return,
+                "optimization/best_return": best_return,
+                "optimization/duration_s": duration,
+                "optimization/wall_time_s": time.monotonic() - self.started_at,
+                "optimization/team": parameters,
                 "optimization/recommendation": recommendation,
             }
             if round_index is not None:
@@ -650,7 +891,9 @@ class WandbEvaluationLogger:
 
 def wandb_config(args: argparse.Namespace) -> dict:
     """Return a W&B-safe copy of command-line configuration."""
-    return {name: str(value) if isinstance(value, Path) else value for name, value in vars(args).items()}
+    return {
+        name: str(value) if isinstance(value, Path) else value for name, value in vars(args).items()
+    }
 
 
 def is_server_running(host: str = SHOWDOWN_HOST, port: int = SHOWDOWN_PORT) -> bool:
@@ -681,16 +924,26 @@ def managed_showdown_server(enabled: bool, showdown_path: Path, verbose: bool = 
         raise FileNotFoundError(f"Pokemon Showdown launcher not found: {executable}")
 
     output = None if verbose else subprocess.DEVNULL
-    process = subprocess.Popen(["node", str(executable), "start", "--no-security"], cwd=showdown_path, stdout=output, stderr=output, start_new_session=True)
+    process = subprocess.Popen(
+        ["node", str(executable), "start", "--no-security"],
+        cwd=showdown_path,
+        stdout=output,
+        stderr=output,
+        start_new_session=True,
+    )
     deadline = time.monotonic() + SERVER_STARTUP_TIMEOUT
 
     try:
         while not is_server_running():
             return_code = process.poll()
             if return_code is not None:
-                raise RuntimeError(f"Pokemon Showdown exited during startup with code {return_code}.")
+                raise RuntimeError(
+                    f"Pokemon Showdown exited during startup with code {return_code}."
+                )
             if time.monotonic() >= deadline:
-                raise TimeoutError(f"Pokemon Showdown did not open port {SHOWDOWN_PORT} within {SERVER_STARTUP_TIMEOUT:g} seconds.")
+                raise TimeoutError(
+                    f"Pokemon Showdown did not open port {SHOWDOWN_PORT} within {SERVER_STARTUP_TIMEOUT:g} seconds."
+                )
             time.sleep(0.1)
 
         if verbose:
@@ -711,7 +964,9 @@ def managed_showdown_server(enabled: bool, showdown_path: Path, verbose: bool = 
 class RetryingTeamDesigner(TeamDesigner):
     """Retry random team details that Showdown rejects."""
 
-    def __init__(self, search_config: TeamSearchConfig, max_attempts: int = 10, validate_teams: bool = True):
+    def __init__(
+        self, search_config: TeamSearchConfig, max_attempts: int = 10, validate_teams: bool = True
+    ):
         super().__init__(search_config, validate_teams=validate_teams)
         self.max_attempts = max_attempts
 
@@ -731,19 +986,32 @@ class ObservationFeaturesExtractor(BaseFeaturesExtractor):
 
     def __init__(self, observation_space):
         feature_keys = tuple(key for key in observation_space.spaces if key != "action_mask")
-        features_dim = sum(max(1, int(np.prod(observation_space[key].shape))) for key in feature_keys)
+        features_dim = sum(
+            max(1, int(np.prod(observation_space[key].shape))) for key in feature_keys
+        )
         super().__init__(observation_space, features_dim=features_dim)
         self.feature_keys = feature_keys
 
     def forward(self, observations):
-        return torch.cat([observations[key].float().reshape(observations[key].shape[0], -1) for key in self.feature_keys], dim=1)
+        return torch.cat(
+            [
+                observations[key].float().reshape(observations[key].shape[0], -1)
+                for key in self.feature_keys
+            ],
+            dim=1,
+        )
 
 
 class MaskedActorCriticPolicy(ActorCriticPolicy):
     """Apply poke-env's action mask to PPO's categorical distribution."""
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args,**kwargs,net_arch=[64, 64],features_extractor_class=ObservationFeaturesExtractor,)
+        super().__init__(
+            *args,
+            **kwargs,
+            net_arch=[64, 64],
+            features_extractor_class=ObservationFeaturesExtractor,
+        )
         self._action_mask = None
 
     def forward(self, observations, deterministic=False):
@@ -783,57 +1051,54 @@ class MaskedActorCriticPolicy(ActorCriticPolicy):
         if no_legal_actions.any():
             valid_actions = valid_actions.clone()
             valid_actions[no_legal_actions, 0] = True
-        return self.action_dist.proba_distribution(action_logits=action_logits.masked_fill(~valid_actions, float("-inf")))
+        return self.action_dist.proba_distribution(
+            action_logits=action_logits.masked_fill(~valid_actions, float("-inf"))
+        )
 
 
 def make_search_config(format_config: FormatConfig) -> TeamSearchConfig:
     """Create the optimized learner configuration for the selected format."""
-    return TeamSearchConfig(
-        format=format_config,
+    return make_all_attribute_search_config(
+        format_config,
         team_size=TEAM_SIZE,
-        species=SelectionMode.OPTIMIZED,
-        natures=AttributeMode.OPTIMIZED,
-        generations_allowed=tuple(range(1, format_config.generation + 1)),
         types_allowed=("water",) if "monotype" in format_config.format_id else None,
     )
 
 
 @lru_cache(maxsize=None)
-def get_ngopt_parameter_choices(search_config: TeamSearchConfig) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """Return the ordered lookup tables used by the integer-ID optimizer representation."""
-    designer = TeamDesigner(search_config)
-    parameter_space = designer.get_optimizable_parameter_space()["pokemon_0"]
-    return tuple(parameter_space["species"]["values"]), tuple(parameter_space["nature"]["values"])
+def get_ngopt_parameter_choices(
+    search_config: TeamSearchConfig,
+) -> tuple[TeamDesignVectorAdapter]:
+    """Return the adapter used by the bounded NGOpt representation."""
+    return (TeamDesignVectorAdapter(search_config),)
 
 
 def make_ngopt_parameterization(search_config: TeamSearchConfig):
-    """Translate this example's categorical embodiment space to compact integer IDs."""
-    species_values, nature_values = get_ngopt_parameter_choices(search_config)
-    lower = np.zeros(search_config.team_size * 2, dtype=np.int64)
-    upper = np.asarray([len(species_values) - 1] * search_config.team_size + [len(nature_values) - 1] * search_config.team_size, dtype=np.int64)
-
-    return ng.p.Array(shape=(search_config.team_size * 2,), lower=lower, upper=upper).set_integer_casting()
+    """Expose all optimized team attributes through one bounded vector."""
+    (team_adapter,) = get_ngopt_parameter_choices(search_config)
+    return ng.p.Array(shape=(team_adapter.dimension,), lower=0.0, upper=1.0)
 
 
-def decode_ngopt_parameter_values(parameter_values: np.ndarray, species_values: tuple[str, ...], nature_values: tuple[str, ...]) -> dict:
-    """Decode the flat integer-ID array into TeamDesigner parameters."""
-    team_size = len(parameter_values) // 2
-    if parameter_values.shape != (team_size * 2,):
-        raise ValueError("Nevergrad team parameter values must be a flat array containing equally many species and nature IDs")
-    return {
-        f"pokemon_{index}": {"species": species_values[int(parameter_values[index])], "nature": nature_values[int(parameter_values[team_size + index])]}
-        for index in range(team_size)
-    }
+def decode_ngopt_parameter_values(
+    parameter_values: np.ndarray, team_adapter: TeamDesignVectorAdapter
+) -> dict:
+    """Decode the bounded NGOpt vector through the canonical team schema."""
+    return team_adapter.decode(parameter_values)
 
 
 def team_species_are_trackable(parameter_values: dict, generation: int) -> bool:
     """Return whether poke-env's fuzzy identifier matching can distinguish every Pokemon."""
     pokedex = GenData.from_gen(generation).pokedex
     species = [pokemon["species"] for pokemon in parameter_values.values()]
-    base_species = [to_id_str(pokedex.get(to_id_str(name), {}).get("baseSpecies", name)) for name in species]
+    base_species = [
+        to_id_str(pokedex.get(to_id_str(name), {}).get("baseSpecies", name)) for name in species
+    ]
     for index, base_name in enumerate(base_species):
         for other_index, other_name in enumerate(species):
-            if index != other_index and (base_name == to_id_str(other_name) or base_name in {to_id_str(part) for part in other_name.split("-")}):
+            if index != other_index and (
+                base_name == to_id_str(other_name)
+                or base_name in {to_id_str(part) for part in other_name.split("-")}
+            ):
                 return False
     return True
 
@@ -848,14 +1113,16 @@ def make_control_env(
     **env_kwargs,
 ):
     """Create the selected baseline environment for one learner team."""
-    return Monitor(environment_class(
-        team=learner_team,
-        observation_encoder=observation_encoder,
-        account_configuration1=account_configuration1,
-        account_configuration2=account_configuration2,
-        save_replays=save_replays,
-        **env_kwargs,
-    ))
+    return Monitor(
+        environment_class(
+            team=learner_team,
+            observation_encoder=observation_encoder,
+            account_configuration1=account_configuration1,
+            account_configuration2=account_configuration2,
+            save_replays=save_replays,
+            **env_kwargs,
+        )
+    )
 
 
 def make_control_training_env(
@@ -881,21 +1148,34 @@ def make_control_training_env(
     def make_env(rank: int):
         def initialize():
             learner_team = (
-                learner_teams[rank] if learner_teams is not None else
-                make_team(learner_config, parameter_values, seed + rank) if learner_team_pool is None else learner_team_pool.builder(seed + rank)
+                learner_teams[rank]
+                if learner_teams is not None
+                else make_team(learner_config, parameter_values, seed + rank)
+                if learner_team_pool is None
+                else learner_team_pool.builder(seed + rank)
             )
             return environment_class(
                 team=learner_team,
                 observation_encoder=observation_encoder,
-                opponent_team=None if opponent_team_pool is None else opponent_team_pool.builder(seed + rank),
-                server_configuration=server_configuration_for(args, rank), challenge_timeout=args.challenge_timeout, save_replays=save_replays,
-                account_configuration1=account_configuration1, account_configuration2=account_configuration2,
+                opponent_team=None
+                if opponent_team_pool is None
+                else opponent_team_pool.builder(seed + rank),
+                server_configuration=server_configuration_for(args, rank),
+                challenge_timeout=args.challenge_timeout,
+                save_replays=save_replays,
+                account_configuration1=account_configuration1,
+                account_configuration2=account_configuration2,
             )
 
         return initialize
 
     return make_vector_env(
-        [make_env(rank) for rank in range(num_envs)], vec_env, args.envs_per_worker, args.reset_retries, args.step_timeout, args.step_timeout_reward
+        [make_env(rank) for rank in range(num_envs)],
+        vec_env,
+        args.envs_per_worker,
+        args.reset_retries,
+        args.step_timeout,
+        args.step_timeout_reward,
     )
 
 
@@ -935,8 +1215,14 @@ def watch_saved_controller(
     controller_path = output_dir / "best_controller"
     team_path = output_dir / "best_team.json"
     schema_path = output_dir / "observation_schema.json"
-    if (not controller_path.with_suffix(".zip").exists() or not team_path.exists() or not schema_path.exists()):
-        raise FileNotFoundError(f"No compatible saved controller, team, and observation schema found in {output_dir}. Run training first.")
+    if (
+        not controller_path.with_suffix(".zip").exists()
+        or not team_path.exists()
+        or not schema_path.exists()
+    ):
+        raise FileNotFoundError(
+            f"No compatible saved controller, team, and observation schema found in {output_dir}. Run training first."
+        )
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     if schema != observation_encoder.get_schema():
         raise ValueError("The saved controller uses a different observation schema. Retrain it.")
@@ -983,15 +1269,32 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ppo-timesteps", type=int, default=2048)
     parser.add_argument("--evaluation-episodes", type=int, default=8)
     parser.add_argument(
-        "--evaluation-interval-rollouts", type=int, default=0,
+        "--optimizer-evaluation-episodes",
+        type=int,
+        default=2,
+        help="Complete deterministic battles used to score each NGOpt candidate.",
+    )
+    parser.add_argument(
+        "--evaluation-interval-rollouts",
+        type=int,
+        default=0,
         help="Evaluate after every N completed PPO rollouts; zero disables periodic evaluation.",
     )
     parser.add_argument("--seed", type=int, default=0)
     add_compute_arguments(parser)
     parser.add_argument("--output-dir", type=Path, default=Path("runs/minimal_codesign"))
-    parser.add_argument("--environment", choices=ENVIRONMENTS, default="random", help="Baseline environment and opponent policy.")
+    parser.add_argument(
+        "--environment",
+        choices=ENVIRONMENTS,
+        default="random",
+        help="Baseline environment and opponent policy.",
+    )
     parser.add_argument("--verbose", action="store_true")
-    parser.add_argument("--launch-server", action="store_true", help="Start and stop the bundled local Pokemon Showdown server.")
+    parser.add_argument(
+        "--launch-server",
+        action="store_true",
+        help="Start and stop the bundled local Pokemon Showdown server.",
+    )
     parser.add_argument("--watch", action="store_true")
     parser.add_argument("--watch-games", type=int, default=3)
     parser.add_argument("--turn-delay", type=float, default=1.0)
@@ -1000,12 +1303,17 @@ def parse_args() -> argparse.Namespace:
 
 
 def run_experiment(
-    args: argparse.Namespace, environment_class: type[BaselineOpponentEnv], format_config: FormatConfig, wandb_logger: WandbEvaluationLogger
+    args: argparse.Namespace,
+    environment_class: type[BaselineOpponentEnv],
+    format_config: FormatConfig,
+    wandb_logger: WandbEvaluationLogger,
 ) -> None:
     """Run training or watch mode against an available Showdown server."""
     with startup_stage(args, wandb_logger, "observation_setup"):
         learner_config = make_search_config(format_config)
-        observation_encoder = HumanVisibleBattleEncoder.from_showdown(format_config, observation_config=OBSERVATION_CONFIG)
+        observation_encoder = HumanVisibleBattleEncoder.from_showdown(
+            format_config, observation_config=OBSERVATION_CONFIG
+        )
     if args.watch:
         watch_saved_controller(
             args.output_dir,
@@ -1019,33 +1327,73 @@ def run_experiment(
         )
         return
 
-    (args.output_dir / "observation_schema.json").write_text(json.dumps(observation_encoder.get_schema(), indent=2) + "\n", encoding="utf-8")
+    (args.output_dir / "observation_schema.json").write_text(
+        json.dumps(observation_encoder.get_schema(), indent=2) + "\n", encoding="utf-8"
+    )
+    team_adapter = TeamDesignVectorAdapter(learner_config)
+    (args.output_dir / "team_design_schema.json").write_text(
+        json.dumps(team_adapter.schema(), indent=2) + "\n", encoding="utf-8"
+    )
 
-    pool_size = args.random_team_pool_size or (max(args.num_envs, 1_024) if args.vec_env == "sharded" else 0)
+    pool_size = args.random_team_pool_size or (
+        max(args.num_envs, 1_024) if args.vec_env == "sharded" else 0
+    )
     opponent_team_pool = None
     if pool_size:
         with startup_stage(args, wandb_logger, "opponent_team_pool", teams=pool_size):
-            opponent_team_pool = RandomTeamPool.from_showdown(format_config.showdown_path, environment_class.OPPONENT_TEAM_FORMAT, pool_size)
+            opponent_team_pool = RandomTeamPool.from_showdown(
+                format_config.showdown_path, environment_class.OPPONENT_TEAM_FORMAT, pool_size
+            )
 
     rollout_size = args.num_envs * args.rollout_steps
     rollout_count = (args.ppo_timesteps + rollout_size - 1) // rollout_size
-    population_evaluations = rollout_population_evaluations(args.ppo_timesteps, args.num_envs, args.rollout_steps)
+    population_evaluations = rollout_population_evaluations(
+        args.ppo_timesteps, args.num_envs, args.rollout_steps
+    )
     with startup_stage(args, wandb_logger, "learner_population", teams=args.num_envs):
         parametrization = make_ngopt_parameterization(learner_config)
         parametrization.random_state.seed(args.seed)
-        optimizer = ng.optimizers.NGOpt(parametrization=parametrization, budget=population_evaluations, num_workers=args.num_envs)
-        candidates, parameters, teams = sample_team_population(optimizer, learner_config, args.num_envs, args.seed)
+        optimizer = ng.optimizers.NGOpt(
+            parametrization=parametrization,
+            budget=population_evaluations,
+            num_workers=args.num_envs,
+        )
+        candidates, parameters, teams = sample_team_population(
+            optimizer, learner_config, args.num_envs, args.seed
+        )
     with startup_stage(args, wandb_logger, "environment_workers", environments=args.num_envs):
         training_env = make_control_training_env(
-            environment_class, learner_config, parameters[0], observation_encoder, args, args.seed,
-            opponent_team_pool=opponent_team_pool, learner_teams=teams,
+            environment_class,
+            learner_config,
+            parameters[0],
+            observation_encoder,
+            args,
+            args.seed,
+            opponent_team_pool=opponent_team_pool,
+            learner_teams=teams,
         )
     team_optimizer_callback = RolloutTeamOptimizerCallback(
-        optimizer, learner_config, candidates, parameters, args.seed, args.ppo_timesteps, wandb_logger, "codesign"
+        optimizer,
+        learner_config,
+        candidates,
+        parameters,
+        args.seed,
+        args.ppo_timesteps,
+        evaluation_episodes=args.optimizer_evaluation_episodes,
+        wandb_logger=wandb_logger,
+        label="codesign",
     )
     model = PPO(
-        MaskedActorCriticPolicy, training_env, n_steps=args.rollout_steps, batch_size=args.batch_size, learning_rate=3e-4,
-        gamma=0.99, ent_coef=0.01, seed=args.seed, device=args.device, verbose=int(args.verbose),
+        MaskedActorCriticPolicy,
+        training_env,
+        n_steps=args.rollout_steps,
+        batch_size=args.batch_size,
+        learning_rate=3e-4,
+        gamma=0.99,
+        ent_coef=0.01,
+        seed=args.seed,
+        device=args.device,
+        verbose=int(args.verbose),
     )
     if args.verbose:
         print(
@@ -1055,59 +1403,116 @@ def run_experiment(
         )
 
     def evaluate_periodically(current_model: PPO, completed_rollouts: int, timesteps: int) -> None:
-        recommendation = decode_ngopt_parameter_values(optimizer.provide_recommendation().value, *get_ngopt_parameter_choices(learner_config))
+        recommendation = decode_ngopt_parameter_values(
+            optimizer.provide_recommendation().value, *get_ngopt_parameter_choices(learner_config)
+        )
         label = f"rollout-{completed_rollouts}"
         replay_dir = evaluation_replay_dir(args.output_dir, label)
         previous_replays = set(replay_dir.glob("*.html"))
-        evaluation_accounts = evaluation_account_configurations(EVALUATION_OPPONENT_NAMES[environment_class], completed_rollouts)
+        evaluation_accounts = evaluation_account_configurations(
+            EVALUATION_OPPONENT_NAMES[environment_class], completed_rollouts
+        )
         evaluation_seed = args.seed + population_evaluations + completed_rollouts
         def evaluation_env_factory(episode: int):
             seed = evaluation_seed + episode
             return make_control_env(
-                environment_class, make_team(learner_config, recommendation, seed), observation_encoder,
-                opponent_team=None if opponent_team_pool is None else opponent_team_pool.builder(seed),
-                server_configuration=server_configuration_for(args, args.num_envs), challenge_timeout=args.challenge_timeout,
-                save_replays=str(replay_dir), account_configuration1=evaluation_accounts[0], account_configuration2=evaluation_accounts[1],
+                environment_class,
+                make_team(learner_config, recommendation, seed),
+                observation_encoder,
+                opponent_team=None
+                if opponent_team_pool is None
+                else opponent_team_pool.builder(seed),
+                server_configuration=server_configuration_for(args, args.num_envs),
+                challenge_timeout=args.challenge_timeout,
+                save_replays=str(replay_dir),
+                account_configuration1=evaluation_accounts[0],
+                account_configuration2=evaluation_accounts[1],
             )
+
         if args.verbose:
-            print(f"status=evaluating rollout={completed_rollouts} timesteps={timesteps} episodes={args.evaluation_episodes}", flush=True)
+            print(
+                f"status=evaluating rollout={completed_rollouts} timesteps={timesteps} episodes={args.evaluation_episodes}",
+                flush=True,
+            )
         mean_return, timed_out_episodes = evaluate_controller(
-            current_model, evaluation_env_factory, args.evaluation_episodes, args.evaluation_timeout, args.evaluation_timeout_return
+            current_model,
+            evaluation_env_factory,
+            args.evaluation_episodes,
+            args.evaluation_timeout,
+            args.evaluation_timeout_return,
         )
         replay_paths = collect_evaluation_replays(replay_dir, previous_replays)
         evaluation_metrics = {
-            "evaluation/timesteps": timesteps, "evaluation/rollout": completed_rollouts, "evaluation/timed_out_episodes": timed_out_episodes,
+            "evaluation/timesteps": timesteps,
+            "evaluation/rollout": completed_rollouts,
+            "evaluation/timed_out_episodes": timed_out_episodes,
         }
-        wandb_logger.log(label, completed_rollouts, mean_return, recommendation, replay_paths, **evaluation_metrics)
-        print(f"evaluation_rollout={completed_rollouts} timesteps={timesteps} mean_return={mean_return:.3f}", flush=True)
+        wandb_logger.log(
+            label,
+            completed_rollouts,
+            mean_return,
+            recommendation,
+            replay_paths,
+            **evaluation_metrics,
+        )
+        print(
+            f"evaluation_rollout={completed_rollouts} timesteps={timesteps} mean_return={mean_return:.3f}",
+            flush=True,
+        )
 
     periodic_evaluation_callback = None
     if args.evaluation_interval_rollouts:
-        periodic_evaluation_callback = PeriodicEvaluationCallback(args.evaluation_interval_rollouts, rollout_count, evaluate_periodically)
+        periodic_evaluation_callback = PeriodicEvaluationCallback(
+            args.evaluation_interval_rollouts, rollout_count, evaluate_periodically
+        )
     try:
-        initial_reset_started_at = begin_startup_stage(args, wandb_logger, "initial_reset", environments=args.num_envs)
+        initial_reset_started_at = begin_startup_stage(
+            args, wandb_logger, "initial_reset", environments=args.num_envs
+        )
         callback = make_training_callback(
-            args, wandb_logger, "codesign", 0, team_optimizer_callback=team_optimizer_callback, periodic_evaluation_callback=periodic_evaluation_callback,
+            args,
+            wandb_logger,
+            "codesign",
+            0,
+            team_optimizer_callback=team_optimizer_callback,
+            periodic_evaluation_callback=periodic_evaluation_callback,
             initial_reset_started_at=initial_reset_started_at,
         )
         model.learn(total_timesteps=args.ppo_timesteps, callback=callback)
     finally:
         training_env.close()
 
-    recommendation = decode_ngopt_parameter_values(optimizer.provide_recommendation().value, *get_ngopt_parameter_choices(learner_config))
+    recommendation = decode_ngopt_parameter_values(
+        optimizer.provide_recommendation().value, *get_ngopt_parameter_choices(learner_config)
+    )
     replay_dir = evaluation_replay_dir(args.output_dir, "final")
     previous_replays = set(replay_dir.glob("*.html"))
-    evaluation_accounts = evaluation_account_configurations(EVALUATION_OPPONENT_NAMES[environment_class], 0)
+    evaluation_accounts = evaluation_account_configurations(
+        EVALUATION_OPPONENT_NAMES[environment_class], 0
+    )
+
     def evaluation_env_factory(episode: int):
         seed = args.seed + population_evaluations + episode
         return make_control_env(
-            environment_class, make_team(learner_config, recommendation, seed), observation_encoder,
-            opponent_team=None if opponent_team_pool is None else opponent_team_pool.builder(seed),
-            server_configuration=server_configuration_for(args, args.num_envs), challenge_timeout=args.challenge_timeout,
-            save_replays=str(replay_dir), account_configuration1=evaluation_accounts[0], account_configuration2=evaluation_accounts[1],
+            environment_class,
+            make_team(learner_config, recommendation, seed),
+            observation_encoder,
+            opponent_team=None
+            if opponent_team_pool is None
+            else opponent_team_pool.builder(seed),
+            server_configuration=server_configuration_for(args, args.num_envs),
+            challenge_timeout=args.challenge_timeout,
+            save_replays=str(replay_dir),
+            account_configuration1=evaluation_accounts[0],
+            account_configuration2=evaluation_accounts[1],
         )
+
     mean_return, timed_out_episodes = evaluate_controller(
-        model, evaluation_env_factory, args.evaluation_episodes, args.evaluation_timeout, args.evaluation_timeout_return
+        model,
+        evaluation_env_factory,
+        args.evaluation_episodes,
+        args.evaluation_timeout,
+        args.evaluation_timeout_return,
     )
     replay_paths = collect_evaluation_replays(replay_dir, previous_replays)
     model.save(args.output_dir / "best_controller")
@@ -1115,7 +1520,13 @@ def run_experiment(
     wandb_logger.log("final", rollout_count - 1, mean_return, recommendation, replay_paths, **{"evaluation/timed_out_episodes": timed_out_episodes})
     wandb_logger.log_final(mean_return, recommendation)
     wandb_logger.log_checkpoint(
-        "final", (args.output_dir / "best_controller.zip", args.output_dir / "best_team.json", args.output_dir / "observation_schema.json")
+        "final",
+        (
+            args.output_dir / "best_controller.zip",
+            args.output_dir / "best_team.json",
+            args.output_dir / "observation_schema.json",
+            args.output_dir / "team_design_schema.json",
+        ),
     )
     print(f"evaluated_return={mean_return:.3f} best_team={recommendation}")
 
@@ -1130,7 +1541,9 @@ def main() -> None:
     wandb_logger = WandbEvaluationLogger(args, wandb_config(args), enabled=not args.watch)
 
     try:
-        with managed_showdown_cluster(args.launch_server, format_config.showdown_path, showdown_cluster(args), args.verbose):
+        with managed_showdown_cluster(
+            args.launch_server, format_config.showdown_path, showdown_cluster(args), args.verbose
+        ):
             run_experiment(args, environment_class, format_config, wandb_logger)
     finally:
         wandb_logger.finish()

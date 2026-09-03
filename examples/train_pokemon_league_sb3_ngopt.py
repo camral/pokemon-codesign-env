@@ -29,7 +29,6 @@ if __package__:
         RetryingTeamDesigner,
         RolloutTeamOptimizerCallback,
         WandbEvaluationLogger,
-        TEAM_SIZE,
         add_compute_arguments,
         begin_startup_stage,
         collect_evaluation_replays,
@@ -61,7 +60,6 @@ else:
         RetryingTeamDesigner,
         RolloutTeamOptimizerCallback,
         WandbEvaluationLogger,
-        TEAM_SIZE,
         add_compute_arguments,
         begin_startup_stage,
         collect_evaluation_replays,
@@ -296,7 +294,15 @@ def main() -> None:
         with startup_stage(args, wandb_logger, "environment_workers", environments=args.num_envs):
             training_env = make_league_training_env(search_config, parameters[0], observation_encoder, args, args.seed, learner_teams=teams)
         team_optimizer_callback = RolloutTeamOptimizerCallback(
-            optimizer, search_config, candidates, parameters, args.seed, args.ppo_timesteps, wandb_logger, "league-codesign"
+            optimizer,
+            search_config,
+            candidates,
+            parameters,
+            args.seed,
+            args.ppo_timesteps,
+            evaluation_episodes=args.optimizer_evaluation_episodes,
+            wandb_logger=wandb_logger,
+            label="league-codesign",
         )
         model = PPO(
             MaskedActorCriticPolicy, training_env, n_steps=args.rollout_steps, batch_size=args.batch_size, learning_rate=3e-4,

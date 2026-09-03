@@ -3,12 +3,17 @@ import json
 import os
 import random
 import subprocess
+from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
-from typing import Callable
 
+import numpy as np
 from poke_env.teambuilder import Teambuilder
+
+from pokemon_codesign_env.showdown import get_format_rules
+from pokemon_codesign_env.team_levels import LEVEL_MEAN, LEVEL_STD, resample_packed_team_levels
 
 
 @dataclass(frozen=True)
@@ -16,13 +21,24 @@ class RandomTeamPool:
     """A reusable collection of packed Showdown teams generated in one process."""
 
     teams: tuple[str, ...]
+    level_mean: float = LEVEL_MEAN
+    level_std: float = LEVEL_STD
+    min_level: int = 1
+    max_level: int = 100
 
     def __post_init__(self) -> None:
         if not self.teams:
             raise ValueError("RandomTeamPool requires at least one team")
 
     def builder(self, seed: int | None = None) -> "PooledTeamBuilder":
-        return PooledTeamBuilder(self.teams, seed)
+        return PooledTeamBuilder(
+            self.teams,
+            seed,
+            self.level_mean,
+            self.level_std,
+            self.min_level,
+            self.max_level,
+        )
 
     @classmethod
     def from_showdown(cls, showdown_path: Path, format_id: str, size: int) -> "RandomTeamPool":
@@ -30,20 +46,35 @@ class RandomTeamPool:
             raise ValueError("Random team pool size must be at least one")
         showdown_path = Path(showdown_path).resolve()
         result = subprocess.run(
-            [str(showdown_path / "pokemon-showdown"), "generate-teams", format_id, str(size)], cwd=showdown_path,
-            capture_output=True, check=False, text=True,
+            [str(showdown_path / "pokemon-showdown"), "generate-teams", format_id, str(size)],
+            cwd=showdown_path,
+            capture_output=True,
+            check=False,
+            text=True,
         )
         if result.returncode:
             message = result.stderr.strip() or result.stdout.strip()
-            raise RuntimeError(f"Pokemon Showdown could not generate the random team pool: {message}")
+            raise RuntimeError(
+                f"Pokemon Showdown could not generate the random team pool: {message}"
+            )
         teams = tuple(team for team in result.stdout.splitlines() if team)
         if len(teams) != size:
             raise RuntimeError(f"Pokemon Showdown generated {len(teams)} teams instead of {size}")
-        return cls(teams)
+        rules = get_format_rules(format_id, showdown_path)
+        return cls(
+            teams,
+            min_level=int(rules["min_level"]),
+            max_level=int(rules["max_level"]),
+        )
 
     @classmethod
     def from_generator(
-        cls, showdown_path: Path, format_id: str, size: int, generate_team: Callable[[], str], max_batches: int = 10
+        cls,
+        showdown_path: Path,
+        format_id: str,
+        size: int,
+        generate_team: Callable[[], str],
+        max_batches: int = 10,
     ) -> "RandomTeamPool":
         """Generate varied teams in Python and validate each batch in one Node process."""
         if size < 1:
@@ -51,11 +82,24 @@ class RandomTeamPool:
         valid_teams = []
         for _ in range(max_batches):
             candidates = [generate_team() for _ in range(size - len(valid_teams))]
-            validation_errors = validate_team_batch(Path(showdown_path).resolve(), format_id, candidates)
-            valid_teams.extend(team for team, errors in zip(candidates, validation_errors, strict=True) if errors is None)
+            validation_errors = validate_team_batch(
+                Path(showdown_path).resolve(), format_id, candidates
+            )
+            valid_teams.extend(
+                team
+                for team, errors in zip(candidates, validation_errors, strict=True)
+                if errors is None
+            )
             if len(valid_teams) == size:
-                return cls(tuple(valid_teams))
-        raise RuntimeError(f"Could only generate {len(valid_teams)} valid teams for a pool of {size}")
+                rules = get_format_rules(format_id, Path(showdown_path).resolve())
+                return cls(
+                    tuple(valid_teams),
+                    min_level=int(rules["min_level"]),
+                    max_level=int(rules["max_level"]),
+                )
+        raise RuntimeError(
+            f"Could only generate {len(valid_teams)} valid teams for a pool of {size}"
+        )
 
 
 class TeamBatchValidator:
@@ -70,9 +114,13 @@ class TeamBatchValidator:
         input.on('line', line => {
             try {
                 const teams = JSON.parse(line);
-                process.stdout.write(JSON.stringify(teams.map(team => validator.validateTeam(Teams.unpack(team)) || null)) + '\\n');
+                const results = teams.map(
+                    team => validator.validateTeam(Teams.unpack(team)) || null
+                );
+                process.stdout.write(JSON.stringify(results) + '\\n');
             } catch (error) {
-                process.stdout.write(JSON.stringify({ error: error.stack || String(error) }) + '\\n');
+                const result = { error: error.stack || String(error) };
+                process.stdout.write(JSON.stringify(result) + '\\n');
             }
         });
     """
@@ -86,8 +134,13 @@ class TeamBatchValidator:
 
     def _start(self) -> None:
         self.process = subprocess.Popen(
-            ["node", "-e", self.SCRIPT, self.format_id], cwd=self.showdown_path, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, text=True, bufsize=1,
+            ["node", "-e", self.SCRIPT, self.format_id],
+            cwd=self.showdown_path,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
         )
         self.owner_pid = os.getpid()
 
@@ -121,13 +174,19 @@ class TeamBatchValidator:
                     if isinstance(result, dict) and "error" in result:
                         raise RuntimeError(result["error"])
                     if not isinstance(result, list) or len(result) != len(teams):
-                        result_count = len(result) if isinstance(result, list) else type(result).__name__
-                        raise RuntimeError(f"validator returned {result_count} results for {len(teams)} teams")
+                        result_count = (
+                            len(result) if isinstance(result, list) else type(result).__name__
+                        )
+                        raise RuntimeError(
+                            f"validator returned {result_count} results for {len(teams)} teams"
+                        )
                     return result
                 except (BrokenPipeError, json.JSONDecodeError, OSError, RuntimeError) as error:
                     self.close()
                     if attempt:
-                        raise RuntimeError(f"Pokemon Showdown could not validate the generated team pool: {error}") from error
+                        raise RuntimeError(
+                            f"Pokemon Showdown could not validate the generated team pool: {error}"
+                        ) from error
         raise RuntimeError("Pokemon Showdown could not validate the generated team pool")
 
     def close(self) -> None:
@@ -142,10 +201,8 @@ class TeamBatchValidator:
             self.owner_pid = None
             return
         if process.stdin is not None:
-            try:
+            with suppress(BrokenPipeError):
                 process.stdin.close()
-            except BrokenPipeError:
-                pass
         try:
             process.wait(timeout=2)
         except subprocess.TimeoutExpired:
@@ -174,17 +231,39 @@ def _close_team_batch_validators() -> None:
 atexit.register(_close_team_batch_validators)
 
 
-def validate_team_batch(showdown_path: Path, format_id: str, teams: list[str]) -> list[list[str] | None]:
+def validate_team_batch(
+    showdown_path: Path, format_id: str, teams: list[str]
+) -> list[list[str] | None]:
     return _get_team_batch_validator(showdown_path, format_id).validate(teams)
 
 
 class PooledTeamBuilder(Teambuilder):
     """Sample packed teams without launching a subprocess for every battle."""
 
-    def __init__(self, teams: tuple[str, ...], seed: int | None = None):
+    def __init__(
+        self,
+        teams: tuple[str, ...],
+        seed: int | None = None,
+        level_mean: float = LEVEL_MEAN,
+        level_std: float = LEVEL_STD,
+        min_level: int = 1,
+        max_level: int = 100,
+    ):
         super().__init__()
         self.teams = teams
         self.rng = random.Random(seed)
+        self.level_rng = np.random.default_rng(seed)
+        self.level_mean = level_mean
+        self.level_std = level_std
+        self.min_level = min_level
+        self.max_level = max_level
 
     def yield_team(self) -> str:
-        return self.rng.choice(self.teams)
+        return resample_packed_team_levels(
+            self.rng.choice(self.teams),
+            self.level_rng,
+            minimum=self.min_level,
+            maximum=self.max_level,
+            mean=self.level_mean,
+            std=self.level_std,
+        )

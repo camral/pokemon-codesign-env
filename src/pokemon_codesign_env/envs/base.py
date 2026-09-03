@@ -14,6 +14,7 @@ from pokemon_codesign_env.configs import FormatConfig, ObservationConfig
 from pokemon_codesign_env.observations import HumanVisibleBattleEncoder
 from pokemon_codesign_env.protocol import install_gen4_protocol_adapter
 from pokemon_codesign_env.showdown import validate_team
+from pokemon_codesign_env.team_levels import LEVEL_MEAN, LEVEL_STD, resample_packed_team_levels
 
 
 class _UnexpectedEffectWarningFilter(logging.Filter):
@@ -21,9 +22,13 @@ class _UnexpectedEffectWarningFilter(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:
         message = record.getMessage()
-        known_effect = any(f"'{effect}'" in message for effect in ("BEAT_UP", "MUD_SPORT", "WATER_SPORT"))
+        known_effect = any(
+            f"'{effect}'" in message for effect in ("BEAT_UP", "MUD_SPORT", "WATER_SPORT")
+        )
         return not (
-            record.name == "poke-env" and known_effect and message.startswith("Unexpected effect '")
+            record.name == "poke-env"
+            and known_effect
+            and message.startswith("Unexpected effect '")
             and "Effect.UNKNOWN will be used instead." in message
         )
 
@@ -34,30 +39,61 @@ logging.getLogger("poke-env").addFilter(_UnexpectedEffectWarningFilter())
 class ShowdownRandomTeam(Teambuilder):
     """Generate random teams with Showdown and validate them for another format."""
 
-    def __init__(self, source_format: str, target_format: str, showdown_path: Path, max_attempts: int = 25):
+    def __init__(
+        self,
+        source_format: str,
+        target_format: str,
+        showdown_path: Path,
+        max_attempts: int = 25,
+        level_mean: float = LEVEL_MEAN,
+        level_std: float = LEVEL_STD,
+        min_level: int = 1,
+        max_level: int = 100,
+    ):
         super().__init__()
         self.source_format = source_format
         self.target_format = target_format
         self.showdown_path = showdown_path
         self.max_attempts = max_attempts
+        self.level_mean = level_mean
+        self.level_std = level_std
+        self.min_level = min_level
+        self.max_level = max_level
+        self.rng = np.random.default_rng()
 
     def yield_team(self) -> str:
         last_error = None
         for _ in range(self.max_attempts):
             try:
                 result = subprocess.run(
-                    [str(self.showdown_path / "pokemon-showdown"), "generate-team", self.source_format], cwd=self.showdown_path,
-                    capture_output=True, check=False, text=True,
+                    [
+                        str(self.showdown_path / "pokemon-showdown"),
+                        "generate-team",
+                        self.source_format,
+                    ],
+                    cwd=self.showdown_path,
+                    capture_output=True,
+                    check=False,
+                    text=True,
                 )
                 if result.returncode:
                     message = result.stderr.strip() or result.stdout.strip()
                     raise RuntimeError(f"Pokemon Showdown could not generate a team: {message}")
-                packed_team = result.stdout.strip()
+                packed_team = resample_packed_team_levels(
+                    result.stdout.strip(),
+                    self.rng,
+                    minimum=self.min_level,
+                    maximum=self.max_level,
+                    mean=self.level_mean,
+                    std=self.level_std,
+                )
                 validate_team(self.target_format, packed_team, self.showdown_path)
                 return packed_team
             except (RuntimeError, ValueError) as error:
                 last_error = error
-        raise ValueError(f"Could not generate a valid random opponent team: {last_error}") from last_error
+        raise ValueError(
+            f"Could not generate a valid random opponent team: {last_error}"
+        ) from last_error
 
 
 class HumanVisibleSinglesEnv(SinglesEnv):
@@ -69,10 +105,18 @@ class HumanVisibleSinglesEnv(SinglesEnv):
         if GenData.from_format(kwargs.get("battle_format", "gen8randombattle")).gen == 4:
             install_gen4_protocol_adapter(self.agent1)
             install_gen4_protocol_adapter(self.agent2)
-        self.observation_spaces = {agent: observation_encoder.observation_space for agent in self.possible_agents}
+        self.observation_spaces = {
+            agent: observation_encoder.observation_space for agent in self.possible_agents
+        }
 
     def calc_reward(self, battle: AbstractBattle) -> float:
-        return self.reward_computing_helper(battle, fainted_value=2.0, hp_value=1.0, victory_value=10.0, number_of_pokemons=max(1, battle.team_size))
+        return self.reward_computing_helper(
+            battle,
+            fainted_value=2.0,
+            hp_value=1.0,
+            victory_value=10.0,
+            number_of_pokemons=max(1, battle.team_size),
+        )
 
     def embed_battle(self, battle: AbstractBattle) -> dict[str, np.ndarray]:
         return self.observation_encoder.encode(battle)
@@ -91,7 +135,9 @@ class HumanVisibleSinglesEnv(SinglesEnv):
     def close(self, force: bool = True, wait: bool = True):
         super().close(force=force, wait=wait)
         for agent in (self.agent1, self.agent2):
-            close_task = asyncio.run_coroutine_threadsafe(agent.ps_client._stop_listening(), agent.ps_client.loop)
+            close_task = asyncio.run_coroutine_threadsafe(
+                agent.ps_client._stop_listening(), agent.ps_client.loop
+            )
             try:
                 close_task.result(timeout=10)
             except Exception:
@@ -107,9 +153,16 @@ class BaselineOpponentEnv(SingleAgentWrapper):
     OBSERVATION_CONFIG = ObservationConfig()
 
     def __init__(
-        self, team=None, battle_format: str | None = None, opponent_team_format: str | None = None,
-        observation_config: ObservationConfig | None = None, observation_encoder: HumanVisibleBattleEncoder | None = None,
-        showdown_path: Path | None = None, opponent_team=None, opponent_kwargs: dict | None = None, **env_kwargs,
+        self,
+        team=None,
+        battle_format: str | None = None,
+        opponent_team_format: str | None = None,
+        observation_config: ObservationConfig | None = None,
+        observation_encoder: HumanVisibleBattleEncoder | None = None,
+        showdown_path: Path | None = None,
+        opponent_team=None,
+        opponent_kwargs: dict | None = None,
+        **env_kwargs,
     ):
         if team is None:
             raise ValueError("team must contain the co-design agent's designed team")
@@ -117,7 +170,9 @@ class BaselineOpponentEnv(SingleAgentWrapper):
         self.opponent_team_format = opponent_team_format or self.OPPONENT_TEAM_FORMAT
         observation_config = observation_config or self.OBSERVATION_CONFIG
         self.format_config = FormatConfig.from_showdown(battle_format, showdown_path)
-        self.observation_encoder = observation_encoder or HumanVisibleBattleEncoder.from_showdown(self.format_config, observation_config=observation_config)
+        self.observation_encoder = observation_encoder or HumanVisibleBattleEncoder.from_showdown(
+            self.format_config, observation_config=observation_config
+        )
         if opponent_team is None:
             opponent_team = self.make_random_opponent_team()
 
@@ -125,7 +180,12 @@ class BaselineOpponentEnv(SingleAgentWrapper):
         env_kwargs.setdefault("log_level", 40)
         env_kwargs.setdefault("open_timeout", None)
         env_kwargs.setdefault("strict", False)
-        battle_env = HumanVisibleSinglesEnv(observation_encoder=self.observation_encoder, battle_format=battle_format, team=team, **env_kwargs)
+        battle_env = HumanVisibleSinglesEnv(
+            observation_encoder=self.observation_encoder,
+            battle_format=battle_format,
+            team=team,
+            **env_kwargs,
+        )
         battle_env.agent2.update_team(opponent_team)
 
         opponent_kwargs = dict(opponent_kwargs or {})
@@ -136,10 +196,20 @@ class BaselineOpponentEnv(SingleAgentWrapper):
 
         state_space = self.observation_space["observation"]
         mask_size = self.observation_space["action_mask"].shape[0]
-        self.observation_space = spaces.Dict({**state_space.spaces, "action_mask": spaces.MultiBinary(mask_size)})
+        self.observation_space = spaces.Dict(
+            {**state_space.spaces, "action_mask": spaces.MultiBinary(mask_size)}
+        )
 
     def make_random_opponent_team(self) -> ShowdownRandomTeam:
-        return ShowdownRandomTeam(self.opponent_team_format, self.format_config.format_id, self.format_config.showdown_path)
+        return ShowdownRandomTeam(
+            self.opponent_team_format,
+            self.format_config.format_id,
+            self.format_config.showdown_path,
+            level_mean=LEVEL_MEAN,
+            level_std=LEVEL_STD,
+            min_level=self.format_config.min_level,
+            max_level=self.format_config.max_level,
+        )
 
     def set_learner_team(self, team: str) -> None:
         """Use a new learner embodiment from the next battle onward."""

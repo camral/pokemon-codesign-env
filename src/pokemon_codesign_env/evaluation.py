@@ -2,6 +2,7 @@ import multiprocessing as mp
 import time
 import traceback
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
 
@@ -24,6 +25,35 @@ class IsolatedEvaluationResult:
     mean_return: float
     episode_returns: tuple[float, ...]
     timed_out_episodes: int
+    episode_lengths: tuple[int, ...]
+    wins: tuple[bool | None, ...]
+    turn_counts: tuple[int | None, ...]
+
+    @property
+    def win_rate(self) -> float | None:
+        known = [won for won in self.wins if won is not None]
+        return sum(known) / len(known) if known else None
+
+    @property
+    def mean_episode_length(self) -> float:
+        return sum(self.episode_lengths) / len(self.episode_lengths)
+
+    @property
+    def mean_turn_count(self) -> float | None:
+        known = [turns for turns in self.turn_counts if turns is not None]
+        return sum(known) / len(known) if known else None
+
+
+def _episode_summary(env, info: dict, episode_length: int):
+    won = info.get("won", info.get("win"))
+    turns = info.get("turn", info.get("turn_count"))
+    unwrapped = getattr(env, "unwrapped", env)
+    battle_env = getattr(unwrapped, "env", unwrapped)
+    battle = getattr(battle_env, "battle1", None)
+    if battle is not None:
+        won = getattr(battle, "won", won)
+        turns = getattr(battle, "turn", turns)
+    return episode_length, None if won is None else bool(won), None if turns is None else int(turns)
 
 
 def _evaluation_episode_worker(remote, parent_remote, env_factory: _CloudpickleWrapper) -> None:
@@ -35,17 +65,28 @@ def _evaluation_episode_worker(remote, parent_remote, env_factory: _CloudpickleW
         observation, _ = env.reset()
         remote.send(("observation", observation))
         terminated = truncated = False
+        episode_length = 0
+        info = {}
         while not terminated and not truncated:
             action = remote.recv()
-            observation, reward, terminated, truncated, _ = env.step(action)
-            remote.send(("transition", observation, float(reward), bool(terminated), bool(truncated)))
+            observation, reward, terminated, truncated, info = env.step(action)
+            episode_length += 1
+            summary = _episode_summary(env, dict(info or {}), episode_length)
+            remote.send(
+                (
+                    "transition",
+                    observation,
+                    float(reward),
+                    bool(terminated),
+                    bool(truncated),
+                    summary,
+                )
+            )
     except (BrokenPipeError, EOFError):
         pass
     except Exception:
-        try:
+        with suppress(BrokenPipeError, EOFError, OSError):
             remote.send(("error", traceback.format_exc()))
-        except (BrokenPipeError, EOFError, OSError):
-            pass
     finally:
         if env is not None:
             env.close()
@@ -53,8 +94,12 @@ def _evaluation_episode_worker(remote, parent_remote, env_factory: _CloudpickleW
 
 
 def evaluate_isolated(
-    env_factory: Callable[[int], Any], action_selector: Callable[[Any], Any], episodes: int, timeout: float,
-    timeout_return: float = -10.0, start_method: str = "spawn",
+    env_factory: Callable[[int], Any],
+    action_selector: Callable[[Any], Any],
+    episodes: int,
+    timeout: float,
+    timeout_return: float = -10.0,
+    start_method: str = "spawn",
 ) -> IsolatedEvaluationResult:
     """Evaluate each episode in a disposable environment process with a hard deadline."""
     if episodes < 1:
@@ -63,13 +108,18 @@ def evaluate_isolated(
         raise ValueError("timeout must be greater than zero")
 
     episode_returns = []
+    episode_lengths = []
+    wins = []
+    turn_counts = []
     timed_out_episodes = 0
     context = mp.get_context(start_method)
 
     for episode in range(episodes):
         remote, work_remote = context.Pipe()
         factory = _CloudpickleWrapper(lambda episode=episode: env_factory(episode))
-        process = context.Process(target=_evaluation_episode_worker, args=(work_remote, remote, factory), daemon=True)
+        process = context.Process(
+            target=_evaluation_episode_worker, args=(work_remote, remote, factory), daemon=True
+        )
         process.start()
         work_remote.close()
         deadline = time.monotonic() + timeout
@@ -81,20 +131,29 @@ def evaluate_isolated(
                 if remaining <= 0 or not remote.poll(remaining):
                     timed_out_episodes += 1
                     episode_returns.append(float(timeout_return))
+                    episode_lengths.append(0)
+                    wins.append(None)
+                    turn_counts.append(None)
                     break
                 try:
                     message = remote.recv()
                 except EOFError:
-                    raise RuntimeError(f"Evaluation episode {episode + 1} exited without returning a result") from None
+                    raise RuntimeError(
+                        f"Evaluation episode {episode + 1} exited without returning a result"
+                    ) from None
                 if message[0] == "error":
                     raise RuntimeError(f"Evaluation episode {episode + 1} failed:\n{message[1]}")
                 if message[0] == "observation":
                     observation = message[1]
                 else:
-                    _, observation, reward, terminated, truncated = message
+                    _, observation, reward, terminated, truncated, summary = message
                     episode_return += reward
                     if terminated or truncated:
                         episode_returns.append(episode_return)
+                        length, won, turns = summary
+                        episode_lengths.append(length)
+                        wins.append(won)
+                        turn_counts.append(turns)
                         completed = True
                         break
                 remote.send(action_selector(observation))
@@ -106,4 +165,11 @@ def evaluate_isolated(
                 process.join(timeout=5)
 
     returns = tuple(episode_returns)
-    return IsolatedEvaluationResult(float(sum(returns) / len(returns)), returns, timed_out_episodes)
+    return IsolatedEvaluationResult(
+        float(sum(returns) / len(returns)),
+        returns,
+        timed_out_episodes,
+        tuple(episode_lengths),
+        tuple(wins),
+        tuple(turn_counts),
+    )

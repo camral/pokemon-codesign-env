@@ -42,6 +42,7 @@ from pokemon_codesign_env.baseline_adapters import (
     evaluate_candidate_population,
     make_all_attribute_search_config,
 )
+from pokemon_codesign_env.baseline_artifacts import RunMetrics, write_run_artifacts
 from pokemon_codesign_env.envs import (
     MaxBasePowerPlayerEnv,
     RandomPlayerEnv,
@@ -427,6 +428,7 @@ class RolloutTeamOptimizerCallback(BaseCallback):
         seed: int,
         total_timesteps: int,
         evaluation_episodes: int,
+        incumbent_rescore_interval: int = 5,
         wandb_logger=None,
         label: str = "codesign",
         round_index: int | None = None,
@@ -439,6 +441,7 @@ class RolloutTeamOptimizerCallback(BaseCallback):
         self.seed = seed
         self.total_timesteps = total_timesteps
         self.evaluation_episodes = evaluation_episodes
+        self.incumbent_rescore_interval = incumbent_rescore_interval
         self.wandb_logger = wandb_logger
         self.label = label
         self.round_index = round_index
@@ -446,6 +449,7 @@ class RolloutTeamOptimizerCallback(BaseCallback):
         self.rollout_returns = None
         self.best_return = float("-inf")
         self.best_parameters = None
+        self.incumbent_return = None
 
     def _on_rollout_start(self) -> None:
         self.rollout_returns = np.zeros(self.model.n_envs, dtype=np.float64)
@@ -484,6 +488,43 @@ class RolloutTeamOptimizerCallback(BaseCallback):
                 self.round_index,
             )
         self.rollout_index += 1
+        if (
+            self.incumbent_rescore_interval > 0
+            and self.rollout_index % self.incumbent_rescore_interval == 0
+        ):
+            adapter = get_ngopt_parameter_choices(self.search_config)[0]
+            incumbent = decode_ngopt_parameter_values(
+                self.optimizer.provide_recommendation().value, adapter
+            )
+            compiled = compile_candidates(
+                adapter,
+                self.search_config,
+                [incumbent],
+                [self.seed + self.num_timesteps],
+            )[0]
+            if compiled.valid:
+                for environment_index in range(self.model.n_envs):
+                    self.training_env.env_method(
+                        "set_learner_team", compiled.packed_team, indices=environment_index
+                    )
+                self.incumbent_return = float(
+                    np.mean(
+                        evaluate_candidate_population(
+                            self.model, self.training_env, self.evaluation_episodes
+                        )
+                    )
+                )
+                if self.wandb_logger is not None:
+                    self.wandb_logger.log_training(
+                        self.label,
+                        self.rollout_index,
+                        self.num_timesteps,
+                        {
+                            "ngopt/incumbent_rescore_return": self.incumbent_return,
+                            "ngopt/controller_version_timesteps": self.num_timesteps,
+                        },
+                        self.round_index,
+                    )
         if self.num_timesteps >= self.total_timesteps:
             return
         self.candidates, self.parameters, teams = sample_team_population(
@@ -597,6 +638,8 @@ def validate_compute_arguments(args: argparse.Namespace) -> None:
             raise ValueError(f"--{name.replace('_', '-')} cannot be negative")
     if getattr(args, "evaluation_interval_rollouts", 0) < 0:
         raise ValueError("--evaluation-interval-rollouts cannot be negative")
+    if getattr(args, "incumbent_rescore_interval", 0) < 0:
+        raise ValueError("--incumbent-rescore-interval cannot be negative")
     ShowdownClusterConfig(
         getattr(args, "showdown_host", SHOWDOWN_HOST),
         getattr(args, "showdown_base_port", SHOWDOWN_PORT),
@@ -1179,9 +1222,24 @@ def make_control_training_env(
     )
 
 
-def evaluate_controller(model: PPO, env_factory, episodes: int, timeout: float, timeout_return: float = -10.0) -> tuple[float, int]:
-    """Adapt deterministic SB3 inference to the generic isolated evaluator."""
-    result = evaluate_isolated(env_factory, lambda observation: model.predict(observation, deterministic=True)[0], episodes, timeout, timeout_return)
+def evaluate_controller_result(
+    model: PPO, env_factory, episodes: int, timeout: float, timeout_return: float = -10.0
+):
+    """Return detailed deterministic evaluation results."""
+    return evaluate_isolated(
+        env_factory,
+        lambda observation: model.predict(observation, deterministic=True)[0],
+        episodes,
+        timeout,
+        timeout_return,
+    )
+
+
+def evaluate_controller(
+    model: PPO, env_factory, episodes: int, timeout: float, timeout_return: float = -10.0
+) -> tuple[float, int]:
+    """Compatibility wrapper returning mean return and timeout count."""
+    result = evaluate_controller_result(model, env_factory, episodes, timeout, timeout_return)
     return result.mean_return, result.timed_out_episodes
 
 
@@ -1273,6 +1331,12 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=2,
         help="Complete deterministic battles used to score each NGOpt candidate.",
+    )
+    parser.add_argument(
+        "--incumbent-rescore-interval",
+        type=int,
+        default=5,
+        help="Rescore NGOpt's incumbent every N PPO rollouts; zero disables it.",
     )
     parser.add_argument(
         "--evaluation-interval-rollouts",
@@ -1380,6 +1444,7 @@ def run_experiment(
         args.seed,
         args.ppo_timesteps,
         evaluation_episodes=args.optimizer_evaluation_episodes,
+        incumbent_rescore_interval=args.incumbent_rescore_interval,
         wandb_logger=wandb_logger,
         label="codesign",
     )
@@ -1413,6 +1478,7 @@ def run_experiment(
             EVALUATION_OPPONENT_NAMES[environment_class], completed_rollouts
         )
         evaluation_seed = args.seed + population_evaluations + completed_rollouts
+
         def evaluation_env_factory(episode: int):
             seed = evaluation_seed + episode
             return make_control_env(
@@ -1497,9 +1563,7 @@ def run_experiment(
             environment_class,
             make_team(learner_config, recommendation, seed),
             observation_encoder,
-            opponent_team=None
-            if opponent_team_pool is None
-            else opponent_team_pool.builder(seed),
+            opponent_team=None if opponent_team_pool is None else opponent_team_pool.builder(seed),
             server_configuration=server_configuration_for(args, args.num_envs),
             challenge_timeout=args.challenge_timeout,
             save_replays=str(replay_dir),
@@ -1507,17 +1571,45 @@ def run_experiment(
             account_configuration2=evaluation_accounts[1],
         )
 
-    mean_return, timed_out_episodes = evaluate_controller(
+    evaluation_result = evaluate_controller_result(
         model,
         evaluation_env_factory,
         args.evaluation_episodes,
         args.evaluation_timeout,
         args.evaluation_timeout_return,
     )
+    mean_return = evaluation_result.mean_return
+    timed_out_episodes = evaluation_result.timed_out_episodes
     replay_paths = collect_evaluation_replays(replay_dir, previous_replays)
     model.save(args.output_dir / "best_controller")
-    (args.output_dir / "best_team.json").write_text(json.dumps(recommendation, indent=2) + "\n")
-    wandb_logger.log("final", rollout_count - 1, mean_return, recommendation, replay_paths, **{"evaluation/timed_out_episodes": timed_out_episodes})
+    write_run_artifacts(
+        args.output_dir,
+        team_parameters=recommendation,
+        team_design_schema=team_adapter.schema(),
+        observation_schema=observation_encoder.get_schema(),
+        metrics=RunMetrics(
+            mean_return=mean_return,
+            evaluation_battles=args.evaluation_episodes,
+            environment_transitions=args.ppo_timesteps,
+            win_rate=evaluation_result.win_rate,
+            mean_episode_length=evaluation_result.mean_episode_length,
+            mean_turn_count=evaluation_result.mean_turn_count,
+        ),
+        metadata={
+            "method": "ppo_ngopt",
+            "timed_out_episodes": timed_out_episodes,
+            "optimizer_evaluations": population_evaluations,
+            "incumbent_rescore_return": team_optimizer_callback.incumbent_return,
+        },
+    )
+    wandb_logger.log(
+        "final",
+        rollout_count - 1,
+        mean_return,
+        recommendation,
+        replay_paths,
+        **{"evaluation/timed_out_episodes": timed_out_episodes},
+    )
     wandb_logger.log_final(mean_return, recommendation)
     wandb_logger.log_checkpoint(
         "final",

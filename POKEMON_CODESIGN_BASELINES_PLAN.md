@@ -6,7 +6,7 @@ This document is the source of truth for implementing Pokemon co-design training
 
 Implementation must remain faithful to the decisions recorded here. If a later discovery conflicts with this plan, update this document explicitly before changing the implementation.
 
-## Implementation progress (2026-09-03)
+## Implementation progress (2026-09-04)
 
 Completed foundation:
 
@@ -20,14 +20,9 @@ Completed foundation:
 
 Still pending:
 
-- Full shared metrics/artifact layer and held-out evaluation statistics.
-- House of Dextra stages 1-3.
-- CMA-ES trainer.
-- FastTD3 environment and upstream collection/training-loop integration.
-- Stackelberg PPO adapter/trainer.
-- Transformer Transformer data schema, dataset tooling, trainer, and evaluator.
+- Transformer Transformer is intentionally omitted from the active method set; its experimental implementation is retained without a completion requirement.
 
-Current implementation directive: defer the remainder of House of Dextra after its graph adapter and recurrent-controller primitives. Transformer Transformer is also omitted from the active baseline set; retain its experimental implementation, but do not block completion on it. Complete PPO + NGOpt, CMA-ES, FastTD3, and Stackelberg PPO.
+Current implementation directive: House of Dextra is active and follows the repaired upstream three-stage lifecycle. Transformer Transformer is omitted from the active baseline set; retain its experimental implementation, but do not block completion on it. The active set is PPO + NGOpt, CMA-ES, House of Dextra, FastTD3, and Stackelberg PPO.
 
 ## Settled decisions
 
@@ -319,6 +314,9 @@ After search:
 - The generic baseline adapter omits controller pretraining and fine-tuning; Pokemon-specific entry points must supply both.
 - Existing upstream checkpoints are dexterous-hand checkpoints and cannot be used for Pokemon.
 - The design-value GNN sees performance under the frozen base controller, which may rank teams differently from fully fine-tuned controllers. Report both zero-shot and post-fine-tuning results.
+- RL-Games emits continuous actions, so the Pokemon controller treats its outputs as action scores and executes the highest-scoring currently legal discrete action.
+- The complete categorical team encoding is stable but hash-based; collisions are possible and the flattened morphology vector is large.
+- The Pokemon scripts import the sibling `codesign-baselines` checkout at runtime; use `--baseline-root` when the repositories are not siblings.
 
 ## Method 4: FastTD3
 
@@ -536,7 +534,7 @@ For every method:
 7. Stackelberg PPO.
 8. Transformer Transformer dataset generation, training, and evaluation.
 9. Unified cross-baseline benchmark runner.
-10. Resume House of Dextra controller pretraining, graph search, and fine-tuning when requested.
+10. House of Dextra controller pretraining, graph search, and fine-tuning.
 
 ## Implementation progress
 
@@ -547,15 +545,16 @@ For every method:
 - Stackelberg PPO has a lazy design-to-battle environment, isolated per-process clients, shard routing, and held-out artifact generation.
 - Transformer Transformer has an experimental implementation but is omitted from the active baseline set.
 - The cross-baseline runner validates and combines the common artifact contract.
-- House of Dextra remains intentionally deferred after its graph and recurrent-controller primitives.
+- House of Dextra now provides recurrent cross-embodiment PPO pretraining, frozen-controller GNN-guided legal team search, and winning-team fine-tuning with zero-shot/fine-tuned evaluation artifacts.
 
 ### Verification status
 
-- The full local unit/integration suite reports 38 passing tests.
+- The full local unit/integration suite reports 41 passing tests.
 - PPO + NGOpt completed a minimal live run against the bundled Pokemon Showdown server, including training, complete-battle evaluation, checkpoint/team/schema/metrics output, and HTML replay output.
 - CMA-ES completed a minimal live optimization and held-out evaluation, including controller reload and all common artifacts.
 - FastTD3 completed live embodiment/battle transitions, replay insertion, actor/critic updates, and checkpoint/artifact output; the intentionally short smoke did not run to battle termination.
 - Stackelberg PPO completed a live leader/follower epoch, best-checkpoint reload, held-out evaluation, and common artifacts.
+- House of Dextra completed minimal live controller pretraining, frozen-controller search, checkpoint reload, fixed-team fine-tuning, before/after evaluation, and common artifact/replay generation.
 
 ## Known global concerns
 

@@ -198,27 +198,33 @@ def evaluate_checkpoint(
     model: MaskedDQN, args: argparse.Namespace, population: TeamPopulation, observation_encoder: HumanVisibleBattleEncoder,
     champion: TeamCandidate, cycle: int, completed_steps: int, wandb_logger: WandbEvaluationLogger, label: str,
 ) -> float:
-    """Evaluate the current champion in one isolated environment and log one replay."""
+    """Evaluate the current champion in disposable environments and log their replays."""
     replay_dir = evaluation_replay_dir(args.output_dir, label)
     previous_replays = set(replay_dir.glob("*.html"))
     evaluation_accounts = evaluation_account_configurations("RandomPlayer", cycle)
-    evaluation_env = make_control_env(
-        RandomPlayerEnv,
-        population.trajectory_designer([champion], args.seed + cycle * args.num_envs),
-        observation_encoder,
-        save_replays=str(replay_dir),
-        server_configuration=server_configuration_for(args, args.num_envs),
-        challenge_timeout=args.challenge_timeout,
-        account_configuration1=evaluation_accounts[0],
-        account_configuration2=evaluation_accounts[1],
-    )
+    evaluation_seed = args.seed + cycle * args.num_envs
+
+    def evaluation_env_factory(episode: int):
+        return make_control_env(
+            RandomPlayerEnv,
+            population.trajectory_designer([champion], evaluation_seed + episode),
+            observation_encoder,
+            save_replays=str(replay_dir),
+            server_configuration=server_configuration_for(args, args.num_envs),
+            challenge_timeout=args.challenge_timeout,
+            account_configuration1=evaluation_accounts[0],
+            account_configuration2=evaluation_accounts[1],
+        )
+
     wandb_logger.log_system("evaluation_started", evaluation_episodes=args.evaluation_episodes, evaluation_cycle=cycle)
-    try:
-        mean_return = evaluate_controller(model, evaluation_env, args.evaluation_episodes)
-    finally:
-        evaluation_env.close()
+    mean_return, timed_out_episodes = evaluate_controller(
+        model, evaluation_env_factory, args.evaluation_episodes, args.evaluation_timeout, args.evaluation_timeout_return
+    )
     replay_paths = collect_evaluation_replays(replay_dir, previous_replays)
-    wandb_logger.log(label, cycle, mean_return, champion.parameters, replay_paths, **{"evaluation/timesteps": completed_steps, "evaluation/cycle": cycle})
+    wandb_logger.log(
+        label, cycle, mean_return, champion.parameters, replay_paths,
+        **{"evaluation/timesteps": completed_steps, "evaluation/cycle": cycle, "evaluation/timed_out_episodes": timed_out_episodes},
+    )
     print(f"evaluation={label} cycle={cycle} timesteps={completed_steps} mean_return={mean_return:.3f}", flush=True)
     return mean_return
 

@@ -914,7 +914,7 @@ def make_control_training_env(
     )
 
 
-def evaluate_controller(model: PPO, env_factory, episodes: int, timeout: float, timeout_return: float = -10.0) -> tuple[float, int]:
+def evaluate_controller(model, env_factory, episodes: int, timeout: float, timeout_return: float = -10.0) -> tuple[float, int]:
     """Adapt deterministic SB3 inference to the generic isolated evaluator."""
     result = evaluate_isolated(env_factory, lambda observation: model.predict(observation, deterministic=True)[0], episodes, timeout, timeout_return)
     return result.mean_return, result.timed_out_episodes

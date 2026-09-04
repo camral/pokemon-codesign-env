@@ -538,6 +538,16 @@ For every method:
 9. Unified cross-baseline benchmark runner.
 10. Resume House of Dextra controller pretraining, graph search, and fine-tuning when requested.
 
+## Implementation progress
+
+- Shared all-attribute adapters, fixed level sampling, validation, evaluation metrics, and artifacts are implemented.
+- PPO + NGOpt and CMA-ES entry points are implemented.
+- FastTD3 has a two-phase combined action space, phase-projected actor actions, and executed-action replay storage.
+- Stackelberg PPO has a lazy design-to-battle environment and upstream-problem adapter.
+- Transformer Transformer has native Pokemon modalities, task conditioning, held-out splitting, training, generation, and evaluation entry points.
+- The cross-baseline runner validates and combines the common artifact contract.
+- House of Dextra remains intentionally deferred after its graph and recurrent-controller primitives.
+
 ## Known global concerns
 
 - Pokemon's design space is highly categorical and conditional; continuous baselines will receive discontinuous objectives.

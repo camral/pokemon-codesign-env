@@ -56,12 +56,68 @@ class PokemonTrajectoryWriter:
             "reward": np.asarray(rewards, dtype=np.float32),
             "held_out": np.asarray(held_out, dtype=np.bool_),
         }
+        episode_arrays, vocabularies = self._episode_modalities()
+        arrays.update(episode_arrays)
         for name, array in arrays.items():
-            root.create_array(name, data=array)
+            root.create_dataset(name, data=array, shape=array.shape, dtype=array.dtype)
         root.attrs["schema"] = json.dumps(schema, sort_keys=True)
         root.attrs["modalities"] = list(POKEMON_MODALITIES)
         root.attrs["team_parameters"] = json.dumps(self.team_parameters, sort_keys=True)
         root.attrs["opponent_tasks"] = json.dumps(self.tasks, sort_keys=True)
+        root.attrs["vocabularies"] = json.dumps(vocabularies, sort_keys=True)
+
+    def _episode_modalities(self):
+        categorical = ("species", "item", "nature", "ability", "gender", "tera_type")
+        vocabularies = {}
+        for attribute in (*categorical, "move", "opponent_task"):
+            if attribute == "move":
+                values = {
+                    move
+                    for team in self.team_parameters
+                    for pokemon in team.values()
+                    for move in pokemon["moves"]
+                }
+            elif attribute == "opponent_task":
+                values = set(self.tasks)
+            else:
+                values = {
+                    pokemon.get(attribute)
+                    for team in self.team_parameters
+                    for pokemon in team.values()
+                    if pokemon.get(attribute) is not None
+                }
+            vocabularies[attribute] = {
+                value: index + 1 for index, value in enumerate(sorted(values))
+            }
+
+        pokemon_tokens = np.zeros((len(self.team_parameters), 6, 7), dtype=np.int64)
+        move_tokens = np.zeros((len(self.team_parameters), 6, 4), dtype=np.int64)
+        evs = np.zeros((len(self.team_parameters), 6, 6), dtype=np.int64)
+        ivs = np.zeros_like(evs)
+        stats = ("hp", "atk", "def", "spa", "spd", "spe")
+        for episode, team in enumerate(self.team_parameters):
+            for slot in range(6):
+                pokemon = team[f"pokemon_{slot}"]
+                pokemon_tokens[episode, slot, :6] = [
+                    vocabularies[attribute].get(pokemon.get(attribute), 0)
+                    for attribute in categorical
+                ]
+                pokemon_tokens[episode, slot, 6] = int(pokemon["happiness"])
+                move_tokens[episode, slot, : len(pokemon["moves"][:4])] = [
+                    vocabularies["move"][move] for move in pokemon["moves"][:4]
+                ]
+                evs[episode, slot] = [pokemon["evs"][stat] for stat in stats]
+                ivs[episode, slot] = [pokemon["ivs"][stat] for stat in stats]
+        task_tokens = np.asarray(
+            [vocabularies["opponent_task"][task] for task in self.tasks], dtype=np.int64
+        )
+        return {
+            "pokemon": pokemon_tokens,
+            "move": move_tokens,
+            "ev": evs,
+            "iv": ivs,
+            "opponent_task": task_tokens,
+        }, vocabularies
 
 
 def flatten_battle_observation(observation: dict, keys: tuple[str, ...]) -> np.ndarray:

@@ -541,12 +541,19 @@ For every method:
 ## Implementation progress
 
 - Shared all-attribute adapters, fixed level sampling, validation, evaluation metrics, and artifacts are implemented.
-- PPO + NGOpt and CMA-ES entry points are implemented.
-- FastTD3 has a two-phase combined action space, phase-projected actor actions, and executed-action replay storage.
-- Stackelberg PPO has a lazy design-to-battle environment and upstream-problem adapter.
+- PPO + NGOpt uses complete-battle, common-seed population scoring and periodic incumbent rescoring.
+- CMA-ES jointly evolves the team and compact controller, distributes candidates over process workers/Showdown shards, and performs held-out rescoring.
+- FastTD3 has a two-phase combined action space, phase-projected actor actions, executed-action replay storage, and sharded asynchronous battle collection.
+- Stackelberg PPO has a lazy design-to-battle environment, isolated per-process clients, shard routing, and held-out artifact generation.
 - Transformer Transformer has an experimental implementation but is omitted from the active baseline set.
 - The cross-baseline runner validates and combines the common artifact contract.
 - House of Dextra remains intentionally deferred after its graph and recurrent-controller primitives.
+
+### Verification status
+
+- The full local unit/integration suite reports 38 passing tests.
+- PPO + NGOpt completed a minimal live run against the bundled Pokemon Showdown server, including training, complete-battle evaluation, checkpoint/team/schema/metrics output, and HTML replay output.
+- CMA-ES, FastTD3, and Stackelberg PPO have focused adapter and rollout-contract tests, but full live training runs remain hardware/battle-budget validation tasks rather than blockers on the implementation.
 
 ## Known global concerns
 

@@ -39,6 +39,7 @@ def parse_args():
     parser.add_argument("--showdown-port", type=int, default=8000)
     parser.add_argument("--showdown-shards", type=int, default=1)
     parser.add_argument("--challenge-timeout", type=float, default=60.0)
+    parser.add_argument("--evaluation-timeout", type=float, default=200.0)
     parser.add_argument("--held-out-evaluation-battles", type=int, default=16)
     parser.add_argument("--output-dir", type=Path, default=Path("runs/pokemon_cmaes"))
     return parser.parse_args()
@@ -85,6 +86,7 @@ def main():
         showdown_port=args.showdown_port,
         showdown_shards=args.showdown_shards,
         challenge_timeout=args.challenge_timeout,
+        episode_timeout=args.evaluation_timeout,
     )
     if args.num_workers == 1:
         result = run_cmaes(evaluator, config, device=args.device)
@@ -123,7 +125,7 @@ def main():
         evaluation_env,
         controller.predict,
         args.held_out_evaluation_battles,
-        args.challenge_timeout,
+        args.evaluation_timeout,
         start_method="spawn",
     )
     write_run_artifacts(

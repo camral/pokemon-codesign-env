@@ -151,7 +151,7 @@ class FastTD3PokemonCodesignEnv(gym.Env):
         scores[~legal] = 0.0
         selected_action = int(np.argmax(np.where(legal, scores, -np.inf)))
         self._battle_observation, reward, terminated, truncated, raw_info = self._battle_env.step(
-            selected_action
+            np.int64(selected_action)
         )
         info = {
             **dict(raw_info or {}),

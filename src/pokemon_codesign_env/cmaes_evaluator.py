@@ -13,6 +13,7 @@ from pokemon_codesign_env.baseline_adapters import (
 )
 from pokemon_codesign_env.compact_controller import CompactBattleController
 from pokemon_codesign_env.configs import FormatConfig, ObservationConfig
+from pokemon_codesign_env.evaluation import SeededResetEnv, evaluate_isolated
 from pokemon_codesign_env.fasttd3_factory import ENVIRONMENTS
 from pokemon_codesign_env.observations import HumanVisibleBattleEncoder
 from pokemon_codesign_env.team_designer import TeamDesigner
@@ -29,6 +30,7 @@ class PokemonCMAEvaluator:
         showdown_port: int = 8000,
         showdown_shards: int = 1,
         challenge_timeout: float = 60.0,
+        episode_timeout: float = 200.0,
     ):
         if evaluation_repeats < 1:
             raise ValueError("evaluation_repeats must be positive")
@@ -42,6 +44,7 @@ class PokemonCMAEvaluator:
         self.showdown_port = showdown_port
         self.showdown_shards = showdown_shards
         self.challenge_timeout = challenge_timeout
+        self.episode_timeout = episode_timeout
         self.evaluation_index = 0
 
     @property
@@ -80,23 +83,25 @@ class PokemonCMAEvaluator:
             f"ws://{self.showdown_host}:{self.port_for(candidate_id)}/showdown/websocket",
             "https://play.pokemonshowdown.com/action.php?",
         )
-        env = environment_class(
-            team=packed_team,
-            observation_encoder=encoder,
-            server_configuration=server,
-            challenge_timeout=self.challenge_timeout,
-        )
-        try:
-            observation, _ = env.reset(seed=evaluation_seed)
-            terminated = truncated = False
-            score = 0.0
-            while not terminated and not truncated:
-                observation, reward, terminated, truncated, _ = env.step(
-                    controller.predict(observation)
-                )
-                score += float(reward)
-        finally:
-            env.close()
+
+        def make_env(_episode):
+            return SeededResetEnv(
+                environment_class(
+                    team=packed_team,
+                    observation_encoder=encoder,
+                    server_configuration=server,
+                    challenge_timeout=self.challenge_timeout,
+                ),
+                evaluation_seed,
+            )
+
+        score = evaluate_isolated(
+            make_env,
+            controller.predict,
+            episodes=1,
+            timeout=self.episode_timeout,
+            timeout_return=self.invalid_reward,
+        ).mean_return
         self.evaluation_index += 1
         return score
 

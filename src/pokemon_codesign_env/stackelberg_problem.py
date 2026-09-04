@@ -85,7 +85,7 @@ class PokemonStackelbergProblem:
             legal = legal.copy()
             legal[0] = True
         selected_action = int(np.argmax(np.where(legal, scores, -np.inf)))
-        observation, reward, terminated, truncated, info = self._env.step(selected_action)
+        observation, reward, terminated, truncated, info = self._env.step(np.int64(selected_action))
         self._observation = observation
         return (
             self._node_observation(),

@@ -37,7 +37,7 @@ class CompactBattleController:
         offset += size
         self.output_bias = flat[offset : offset + self.action_count]
 
-    def predict(self, observation) -> int:
+    def predict(self, observation) -> np.int64:
         features = np.concatenate(
             [
                 np.asarray(observation[key], dtype=np.float64).reshape(-1)
@@ -50,4 +50,4 @@ class CompactBattleController:
         if not legal.any():
             legal = legal.copy()
             legal[0] = True
-        return int(np.argmax(np.where(legal, scores, -np.inf)))
+        return np.int64(np.argmax(np.where(legal, scores, -np.inf)))

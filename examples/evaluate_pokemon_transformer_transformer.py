@@ -106,7 +106,7 @@ def main():
                     if native_team is None
                     else torch.as_tensor(native_team[None, :], device=device),
                 )
-            return int(logits.argmax(dim=-1).item())
+            return np.int64(logits.argmax(dim=-1).item())
 
         return select
 

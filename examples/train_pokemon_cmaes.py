@@ -37,6 +37,7 @@ def parse_args():
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--showdown-host", default="127.0.0.1")
     parser.add_argument("--showdown-port", type=int, default=8000)
+    parser.add_argument("--showdown-shards", type=int, default=1)
     parser.add_argument("--challenge-timeout", type=float, default=60.0)
     parser.add_argument("--held-out-evaluation-battles", type=int, default=16)
     parser.add_argument("--output-dir", type=Path, default=Path("runs/pokemon_cmaes"))
@@ -45,6 +46,8 @@ def parse_args():
 
 def main():
     args = parse_args()
+    if args.showdown_shards < 1:
+        raise ValueError("showdown-shards must be positive")
     baseline_root = Path(__file__).resolve().parents[2] / "codesign-baselines"
     sys.path.insert(0, str(baseline_root))
     from cmaes_evolutionary.main import CMAESConfig, run_cmaes
@@ -80,6 +83,7 @@ def main():
         args.evaluation_repeats,
         showdown_host=args.showdown_host,
         showdown_port=args.showdown_port,
+        showdown_shards=args.showdown_shards,
         challenge_timeout=args.challenge_timeout,
     )
     if args.num_workers == 1:
@@ -91,14 +95,15 @@ def main():
     args.output_dir.mkdir(parents=True, exist_ok=True)
     np.save(args.output_dir / "best_controller.npy", result.policy)
     controller.set_parameters(np.load(args.output_dir / "best_controller.npy"))
-    server = ServerConfiguration(
-        f"ws://{args.showdown_host}:{args.showdown_port}/showdown/websocket",
-        "https://play.pokemonshowdown.com/action.php?",
-    )
     (args.output_dir / "replays").mkdir(exist_ok=True)
 
     def evaluation_env(episode):
         evaluation_seed = args.seed + 100_000 + episode
+        port = args.showdown_port + episode % args.showdown_shards
+        server = ServerConfiguration(
+            f"ws://{args.showdown_host}:{port}/showdown/websocket",
+            "https://play.pokemonshowdown.com/action.php?",
+        )
         designer = TeamDesigner(search_config, validate_teams=True)
         designer.rng = np.random.default_rng(evaluation_seed)
         designer.set_optimizable_parameter_values(parameters)

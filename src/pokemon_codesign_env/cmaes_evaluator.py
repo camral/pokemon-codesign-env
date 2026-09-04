@@ -27,16 +27,20 @@ class PokemonCMAEvaluator:
         invalid_reward: float = -1_000_000,
         showdown_host: str = "127.0.0.1",
         showdown_port: int = 8000,
+        showdown_shards: int = 1,
         challenge_timeout: float = 60.0,
     ):
         if evaluation_repeats < 1:
             raise ValueError("evaluation_repeats must be positive")
+        if showdown_shards < 1:
+            raise ValueError("showdown_shards must be positive")
         self.environment = environment
         self.seed = seed
         self.evaluation_repeats = evaluation_repeats
         self.invalid_reward = invalid_reward
         self.showdown_host = showdown_host
         self.showdown_port = showdown_port
+        self.showdown_shards = showdown_shards
         self.challenge_timeout = challenge_timeout
         self.evaluation_index = 0
 
@@ -63,6 +67,7 @@ class PokemonCMAEvaluator:
         try:
             evaluation_seed = self.evaluation_seed
             parameters = adapter.decode(np.clip(design, 0, 1))
+            candidate_id = adapter.candidate_id(parameters)
             designer = TeamDesigner(search_config, validate_teams=True)
             designer.rng = np.random.default_rng(evaluation_seed)
             designer.set_optimizable_parameter_values(parameters)
@@ -72,7 +77,7 @@ class PokemonCMAEvaluator:
             return self.invalid_reward
 
         server = ServerConfiguration(
-            f"ws://{self.showdown_host}:{self.showdown_port}/showdown/websocket",
+            f"ws://{self.showdown_host}:{self.port_for(candidate_id)}/showdown/websocket",
             "https://play.pokemonshowdown.com/action.php?",
         )
         env = environment_class(
@@ -94,3 +99,7 @@ class PokemonCMAEvaluator:
             env.close()
         self.evaluation_index += 1
         return score
+
+    def port_for(self, candidate_id: str) -> int:
+        shard = int(candidate_id[:16], 16) % self.showdown_shards
+        return self.showdown_port + shard

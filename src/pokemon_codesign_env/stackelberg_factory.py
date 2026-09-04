@@ -28,7 +28,11 @@ def make_problem(config):
         {**encoder.observation_space.spaces, "action_mask": spaces.MultiBinary(action_count)}
     )
     host = config.get("showdown_host", "127.0.0.1")
-    port = int(config.get("showdown_port", 8000))
+    base_port = int(config.get("showdown_port", 8000))
+    shards = int(config.get("showdown_shards", 1))
+    if shards < 1:
+        raise ValueError("showdown_shards must be positive")
+    port = base_port + int(config.get("worker_index", 0)) % shards
     server = ServerConfiguration(
         f"ws://{host}:{port}/showdown/websocket",
         "https://play.pokemonshowdown.com/action.php?",

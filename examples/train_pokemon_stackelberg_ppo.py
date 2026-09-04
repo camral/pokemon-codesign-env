@@ -23,9 +23,10 @@ def parse_args():
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--num-threads", type=int, default=1)
     parser.add_argument("--device", default="auto")
-    parser.add_argument("--environment", default="random")
+    parser.add_argument("--environment", choices=ENVIRONMENTS, default="random")
     parser.add_argument("--showdown-host", default="127.0.0.1")
     parser.add_argument("--showdown-port", type=int, default=8000)
+    parser.add_argument("--showdown-shards", type=int, default=1)
     parser.add_argument("--challenge-timeout", type=float, default=60)
     parser.add_argument("--min-batch-size", type=int, default=50_000)
     parser.add_argument("--eval-batch-size", type=int, default=10_000)
@@ -71,6 +72,7 @@ def main():
             "environment": args.environment,
             "showdown_host": args.showdown_host,
             "showdown_port": args.showdown_port,
+            "showdown_shards": args.showdown_shards,
             "challenge_timeout": args.challenge_timeout,
             "save_replays": False,
         },
@@ -79,7 +81,24 @@ def main():
     dtype = torch.float32 if device.type == "mps" else torch.float64
     torch.set_default_dtype(dtype)
     set_global_seed(config.seed)
-    agent = BodyGenAgent(config, dtype, device, config.seed, args.num_threads, training=True)
+
+    class PokemonBodyGenAgent(BodyGenAgent):
+        """Create fresh poke-env clients inside every sampling worker process."""
+
+        def sample_worker(self, pid, queue, min_batch_size, mean_action, render):
+            if pid == 0:
+                return super().sample_worker(pid, queue, min_batch_size, mean_action, render)
+            parent_env = self.env
+            self.cfg.env_specs["problem"]["worker_index"] = pid
+            self.env = env_dict[self.cfg.env_name](self.cfg, self)
+            self.env.seed(self.cfg.seed + pid)
+            try:
+                return super().sample_worker(pid, queue, min_batch_size, mean_action, render)
+            finally:
+                self.env.problem.close()
+                self.env = parent_env
+
+    agent = PokemonBodyGenAgent(config, dtype, device, config.seed, args.num_threads, training=True)
     for epoch in range(config.max_epoch_num):
         agent.optimize(epoch)
         agent.save_checkpoint(epoch)

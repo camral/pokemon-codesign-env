@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
+import time
 import types
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,8 +13,19 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from pokemon_codesign_env.baseline_adapters import (
+    TeamDesignVectorAdapter,
+    make_all_attribute_search_config,
+)
 from pokemon_codesign_env.baseline_adapters.fasttd3 import project_tensor_actions
-from pokemon_codesign_env.fasttd3_factory import action_layout
+from pokemon_codesign_env.baseline_artifacts import RunMetrics, write_run_artifacts
+from pokemon_codesign_env.configs import FormatConfig, ObservationConfig
+from pokemon_codesign_env.fasttd3_factory import ENVIRONMENTS, action_layout
+from pokemon_codesign_env.fasttd3_tracking import (
+    FastTD3RunTracker,
+    executed_action_array,
+)
+from pokemon_codesign_env.observations import HumanVisibleBattleEncoder
 
 BASELINE_ROOT = Path(__file__).resolve().parents[2] / "codesign-baselines" / "fasttd3_rl"
 SOURCE_ROOT = BASELINE_ROOT / "fast_td3"
@@ -42,15 +55,20 @@ class PokemonFastTD3Args(BaseArgs):
     render_interval: int = 0
     v_min: float = -100.0
     v_max: float = 100.0
+    use_wandb: bool = False
+    exp_name: str = "pokemon_fasttd3"
+    output_dir: Path = Path("runs/pokemon_fasttd3")
 
 
 _args: PokemonFastTD3Args | None = None
 _layout: dict[str, int] | None = None
 _training_env = None
+_evaluation_env = None
+_started = None
 
 
 def get_args():
-    global _args, _layout
+    global _args, _layout, _started
     import tyro
 
     _args = tyro.cli(PokemonFastTD3Args)
@@ -63,11 +81,12 @@ def get_args():
     if _args.obs_normalization:
         raise ValueError("Pokemon phase and legality projection requires --no-obs-normalization")
     _layout = action_layout(_args.environment)
+    _started = time.monotonic()
     return _args
 
 
 def _make_envs(*_unused, **_unused_kwargs):
-    global _training_env
+    global _training_env, _evaluation_env
     if _args is None:
         raise RuntimeError("Arguments must be parsed before environments are created")
     from codesign.gymnasium_env import GymnasiumVectorEnv
@@ -78,6 +97,7 @@ def _make_envs(*_unused, **_unused_kwargs):
             "showdown_host": _args.showdown_host,
             "showdown_port": _args.showdown_port,
             "challenge_timeout": _args.challenge_timeout,
+            "save_replays": str(_args.output_dir / "replays"),
         }
     )
     common = dict(
@@ -95,14 +115,21 @@ def _make_envs(*_unused, **_unused_kwargs):
 
         last_executed_actions = None
 
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.tracker = FastTD3RunTracker(self.num_envs)
+
         def step(self, actions):
             result = super().step(actions)
             raw_infos = result[3]["gymnasium"]
-            if "executed_actions" not in raw_infos:
-                raise KeyError("Pokemon environments must return executed_actions")
-            executed = np.asarray(raw_infos["executed_actions"], dtype=np.float32)
+            executed = executed_action_array(raw_infos, self.num_envs)
             self.last_executed_actions = torch.as_tensor(
                 executed, device=self.sim_device, dtype=torch.float32
+            )
+            self.tracker.update(
+                raw_infos,
+                result[1].detach().cpu().numpy(),
+                result[2].detach().cpu().numpy(),
             )
             return result
 
@@ -111,7 +138,57 @@ def _make_envs(*_unused, **_unused_kwargs):
         num_envs=_args.num_eval_envs, **{**common, "seed": _args.seed + 10_000}
     )
     _training_env = training
+    _evaluation_env = evaluation
     return training, evaluation, evaluation
+
+
+def _write_artifacts():
+    if _args is None or _training_env is None:
+        return
+    tracker = (
+        _evaluation_env.tracker
+        if _evaluation_env is not None and _evaluation_env.tracker.best_parameters is not None
+        else _training_env.tracker
+    )
+    environment_class = ENVIRONMENTS[_args.environment]
+    format_config = FormatConfig.from_showdown(environment_class.BATTLE_FORMAT)
+    adapter = TeamDesignVectorAdapter(make_all_attribute_search_config(format_config))
+    encoder = HumanVisibleBattleEncoder.from_showdown(
+        format_config, observation_config=ObservationConfig(team_size=6)
+    )
+    parameters = tracker.best_parameters
+    if parameters is None:
+        parameters = adapter.decode(np.full(adapter.dimension, 0.5))
+    else:
+        parameters = adapter.decode(parameters)
+    source_checkpoint = Path("models") / (
+        f"{_args.env_name}__{_args.exp_name}__{_args.seed}_final.pt"
+    )
+    _args.output_dir.mkdir(parents=True, exist_ok=True)
+    if source_checkpoint.is_file():
+        shutil.copy2(source_checkpoint, _args.output_dir / "best_controller.pt")
+    write_run_artifacts(
+        _args.output_dir,
+        team_parameters=parameters,
+        team_design_schema=adapter.schema(),
+        observation_schema=encoder.get_schema(),
+        metrics=RunMetrics(
+            mean_return=tracker.mean_return if tracker.mean_return is not None else 0.0,
+            evaluation_battles=len(
+                _evaluation_env.tracker.completed_returns if _evaluation_env else []
+            ),
+            training_battles=len(_training_env.tracker.completed_returns),
+            environment_transitions=_training_env.tracker.environment_transitions,
+            invalid_candidate_rate=_training_env.tracker.invalid_candidate_rate,
+            wall_time_seconds=None if _started is None else time.monotonic() - _started,
+        ),
+        metadata={
+            "method": "fasttd3",
+            "best_episode_return": (
+                tracker.best_return if np.isfinite(tracker.best_return) else None
+            ),
+        },
+    )
 
 
 def main():
@@ -157,6 +234,7 @@ def main():
     sys.modules[environment_shim.__name__] = environment_shim
     upstream_train.get_args = get_args
     upstream_train.main()
+    _write_artifacts()
 
 
 if __name__ == "__main__":

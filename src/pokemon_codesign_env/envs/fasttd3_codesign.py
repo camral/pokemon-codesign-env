@@ -61,6 +61,8 @@ class FastTD3PokemonCodesignEnv(gym.Env):
         self._battle_observation = None
         self._design = np.zeros(self.embodiment_dimension, dtype=np.float32)
         self._design_phase = True
+        self._parameters = None
+        self._candidate_id = None
 
     def _flat_observation(self) -> np.ndarray:
         if self._battle_observation is None:
@@ -84,6 +86,8 @@ class FastTD3PokemonCodesignEnv(gym.Env):
         self._battle_observation = None
         self._design = np.zeros(self.embodiment_dimension, dtype=np.float32)
         self._design_phase = True
+        self._parameters = None
+        self._candidate_id = None
         return self._flat_observation(), {"phase": "design"}
 
     def step(self, action):
@@ -101,6 +105,9 @@ class FastTD3PokemonCodesignEnv(gym.Env):
         self._design = np.clip((executed[: self.embodiment_dimension] + 1.0) / 2.0, 0.0, 1.0)
         try:
             parameters = self.adapter.decode(self._design)
+            self._parameters = parameters
+            candidate_id = getattr(self.adapter, "candidate_id", None)
+            self._candidate_id = candidate_id(parameters) if candidate_id else None
             designer = TeamDesigner(self.adapter.search_config, validate_teams=True)
             designer.set_optimizable_parameter_values(parameters)
             packed_team = designer.yield_team()
@@ -113,6 +120,8 @@ class FastTD3PokemonCodesignEnv(gym.Env):
                 "validation_error": str(error),
                 "executed_actions": executed,
                 "selected_battle_action": -1,
+                "selected_design": self._design.copy(),
+                "candidate_id": self._candidate_id,
             }
             return self._flat_observation(), self.invalid_design_reward, True, False, info
         self._design_phase = False
@@ -122,6 +131,8 @@ class FastTD3PokemonCodesignEnv(gym.Env):
             "invalid_design": False,
             "executed_actions": executed,
             "selected_battle_action": -1,
+            "selected_design": self._design.copy(),
+            "candidate_id": self._candidate_id,
         }
         return self._flat_observation(), 0.0, False, False, info
 
@@ -146,6 +157,8 @@ class FastTD3PokemonCodesignEnv(gym.Env):
             "phase": "battle",
             "executed_actions": executed,
             "selected_battle_action": selected_action,
+            "selected_design": self._design.copy(),
+            "candidate_id": self._candidate_id,
         }
         return self._flat_observation(), float(reward), terminated, truncated, info
 

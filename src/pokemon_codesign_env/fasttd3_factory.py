@@ -33,6 +33,7 @@ def make_env(
     showdown_host: str = "127.0.0.1",
     showdown_port: int = 8000,
     challenge_timeout: float = 60.0,
+    save_replays: bool | str = False,
     device: str | None = None,
 ):
     """Build one lazy design-first Pokemon environment."""
@@ -60,6 +61,7 @@ def make_env(
             observation_encoder=encoder,
             server_configuration=server,
             challenge_timeout=challenge_timeout,
+            save_replays=save_replays,
         )
 
     return FastTD3PokemonCodesignEnv(adapter, battle_space, action_count, make_battle_env)

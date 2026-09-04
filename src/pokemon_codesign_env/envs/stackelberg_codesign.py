@@ -42,6 +42,7 @@ class LazyStackelbergPokemonEnv:
         self._sim_obs = np.zeros((self.num_nodes, self.sim_obs_dim), dtype=np.float64)
         self._distances = self._shortest_path_distances()
         self._depths = self._distances[0].astype(np.int64)
+        self.reset_tracking()
 
     def seed(self, seed=None):
         self._seed = self._seed if seed is None else int(seed)
@@ -55,6 +56,17 @@ class LazyStackelbergPokemonEnv:
         self._sim_obs.fill(0)
         return self._get_obs()
 
+    def reset_tracking(self):
+        self.episode_return = 0.0
+        self.completed_returns = []
+        self.wins = []
+        self.turn_counts = []
+        self.episode_lengths = []
+        self.current_episode_length = 0
+        self.environment_transitions = 0
+        self.best_return = -np.inf
+        self.best_design = None
+
     def step(self, action):
         action = np.asarray(action, dtype=np.float64)
         expected = (self.num_nodes, self.control_action_dim + self.attr_design_dim + 1)
@@ -66,16 +78,41 @@ class LazyStackelbergPokemonEnv:
             episode_seed = int(self.np_random.randint(0, 2**31 - 1))
             self._sim_obs = self.problem.reset(self.design, episode_seed)
             self.stage = "execution"
-            return self._get_obs(), 0.0, False, False, self._info(True)
+            self.environment_transitions += 1
+            return (
+                self._get_obs(),
+                0.0,
+                False,
+                False,
+                {
+                    **self._info(True),
+                    "selected_design": self.design.copy(),
+                },
+            )
         self._sim_obs, reward, terminated, truncated, info = self.problem.step(
             action[:, : self.control_action_dim]
         )
+        self.environment_transitions += 1
+        self.current_episode_length += 1
+        self.episode_return += float(reward)
+        if terminated or truncated:
+            self.completed_returns.append(self.episode_return)
+            self.episode_lengths.append(self.current_episode_length)
+            won = info.get("won", info.get("win"))
+            turns = info.get("turn", info.get("turn_count"))
+            self.wins.append(None if won is None else bool(won))
+            self.turn_counts.append(None if turns is None else int(turns))
+            if self.episode_return > self.best_return:
+                self.best_return = self.episode_return
+                self.best_design = self.design.copy()
+            self.episode_return = 0.0
+            self.current_episode_length = 0
         return (
             self._get_obs(),
             reward,
             terminated,
             truncated,
-            {**dict(info), **self._info(False)},
+            {**dict(info), **self._info(False), "selected_design": self.design.copy()},
         )
 
     def _info(self, transform):

@@ -33,6 +33,7 @@ def make_problem(config):
         f"ws://{host}:{port}/showdown/websocket",
         "https://play.pokemonshowdown.com/action.php?",
     )
+    runtime_options = {"save_replays": config.get("save_replays", False)}
 
     def make_battle_env(team):
         return environment_class(
@@ -40,6 +41,9 @@ def make_problem(config):
             observation_encoder=encoder,
             server_configuration=server,
             challenge_timeout=float(config.get("challenge_timeout", 60)),
+            save_replays=runtime_options["save_replays"],
         )
 
-    return PokemonStackelbergProblem(adapter, battle_space, action_count, make_battle_env)
+    problem = PokemonStackelbergProblem(adapter, battle_space, action_count, make_battle_env)
+    problem.runtime_options = runtime_options
+    return problem

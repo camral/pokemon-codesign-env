@@ -3,8 +3,17 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
+import time
 from pathlib import Path
+
+import numpy as np
+
+from pokemon_codesign_env.baseline_artifacts import RunMetrics, write_run_artifacts
+from pokemon_codesign_env.configs import FormatConfig, ObservationConfig
+from pokemon_codesign_env.fasttd3_factory import ENVIRONMENTS
+from pokemon_codesign_env.observations import HumanVisibleBattleEncoder
 
 
 def parse_args():
@@ -20,11 +29,15 @@ def parse_args():
     parser.add_argument("--challenge-timeout", type=float, default=60)
     parser.add_argument("--min-batch-size", type=int, default=50_000)
     parser.add_argument("--eval-batch-size", type=int, default=10_000)
+    parser.add_argument("--final-evaluation-steps", type=int, default=1_000)
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
+    started = time.monotonic()
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    (args.output_dir / "replays").mkdir(exist_ok=True)
     baseline = Path(__file__).resolve().parents[2] / "codesign-baselines" / "stackelberg_ppo"
     sys.path[:0] = [str(baseline.parent), str(baseline)]
     import torch
@@ -59,6 +72,7 @@ def main():
             "showdown_host": args.showdown_host,
             "showdown_port": args.showdown_port,
             "challenge_timeout": args.challenge_timeout,
+            "save_replays": False,
         },
         design_step_scale=1.0,
     )
@@ -69,6 +83,51 @@ def main():
     for epoch in range(config.max_epoch_num):
         agent.optimize(epoch)
         agent.save_checkpoint(epoch)
+    checkpoint = Path(config.model_dir) / "best.p"
+    if not checkpoint.is_file():
+        agent.save_best_flag = True
+        agent.save_checkpoint(max(config.max_epoch_num - 1, 0))
+    agent.env.problem.runtime_options["save_replays"] = str(args.output_dir / "replays")
+    agent.env.reset_tracking()
+    agent.env.seed(args.seed + 100_000)
+    _, final_log = agent.sample(
+        args.final_evaluation_steps,
+        mean_action=True,
+        nthreads=1,
+    )
+    if agent.env.best_design is None:
+        raise RuntimeError("Stackelberg final evaluation completed without a valid team")
+    problem = agent.env.problem
+    parameters = problem.adapter.decode(agent.env.best_design.reshape(-1))
+    environment_class = ENVIRONMENTS[args.environment]
+    format_config = FormatConfig.from_showdown(environment_class.BATTLE_FORMAT)
+    encoder = HumanVisibleBattleEncoder.from_showdown(
+        format_config, observation_config=ObservationConfig(team_size=6)
+    )
+    shutil.copy2(checkpoint, args.output_dir / "best_controller.p")
+    known_wins = [won for won in agent.env.wins if won is not None]
+    known_turns = [turns for turns in agent.env.turn_counts if turns is not None]
+    write_run_artifacts(
+        args.output_dir,
+        team_parameters=parameters,
+        team_design_schema=problem.adapter.schema(),
+        observation_schema=encoder.get_schema(),
+        metrics=RunMetrics(
+            mean_return=float(final_log.avg_exec_episode_reward),
+            evaluation_battles=int(final_log.num_episodes),
+            environment_transitions=agent.env.environment_transitions,
+            win_rate=sum(known_wins) / len(known_wins) if known_wins else None,
+            mean_episode_length=float(np.mean(agent.env.episode_lengths)),
+            mean_turn_count=float(np.mean(known_turns)) if known_turns else None,
+            wall_time_seconds=time.monotonic() - started,
+        ),
+        metadata={
+            "method": "stackelberg_ppo",
+            "training_target_transitions": config.max_epoch_num
+            * (config.min_batch_size + config.eval_batch_size),
+            "best_final_episode_return": agent.env.best_return,
+        },
+    )
 
 
 if __name__ == "__main__":

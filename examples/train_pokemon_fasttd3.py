@@ -112,7 +112,6 @@ def _make_envs(*_unused, **_unused_kwargs):
 
     common = dict(
         env_name=_args.env_name,
-        seed=_args.seed,
         device=torch.device(_args.device),
         env_factory="pokemon_codesign_env.fasttd3_factory:make_env",
         max_episode_steps=_args.max_episode_steps,
@@ -245,9 +244,9 @@ def main():
         def forward(self, observations):
             return self._project(observations, super().forward(observations))
 
-        def explore(self, observations, dones=None, deterministic=False):
-            actions = super().explore(observations, dones, deterministic)
-            return self._project(observations, actions)
+        def explore(self, obs, dones=None, deterministic=False):
+            actions = super().explore(obs, dones, deterministic)
+            return self._project(obs, actions)
 
     upstream_models.Actor = PokemonActor
 

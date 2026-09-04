@@ -193,6 +193,8 @@ class BaselineOpponentEnv(SingleAgentWrapper):
         opponent_kwargs.setdefault("start_listening", False)
         opponent = self.OPPONENT_CLASS(**opponent_kwargs)
         super().__init__(battle_env, opponent)
+        self._reset_seed_sequence = None
+        self._reset_seed_index = 0
 
         state_space = self.observation_space["observation"]
         mask_size = self.observation_space["action_mask"].shape[0]
@@ -216,6 +218,12 @@ class BaselineOpponentEnv(SingleAgentWrapper):
         self.team = team
         self.env.agent1.update_team(team)
 
+    def set_reset_seed_sequence(self, seed: int | None) -> None:
+        """Temporarily force a common per-episode seed panel for evaluation."""
+
+        self._reset_seed_sequence = seed
+        self._reset_seed_index = 0
+
     @staticmethod
     def _structured(observation):
         action_mask = np.asarray(observation["action_mask"], dtype=np.int8).copy()
@@ -224,6 +232,9 @@ class BaselineOpponentEnv(SingleAgentWrapper):
         return {**observation["observation"], "action_mask": action_mask}
 
     def reset(self, *, seed=None, options=None):
+        if seed is None and self._reset_seed_sequence is not None:
+            seed = self._reset_seed_sequence + self._reset_seed_index
+            self._reset_seed_index += 1
         observation, info = super().reset(seed=seed, options=options)
         return self._structured(observation), info
 

@@ -27,7 +27,7 @@ Still pending:
 - Stackelberg PPO adapter/trainer.
 - Transformer Transformer data schema, dataset tooling, trainer, and evaluator.
 
-Current implementation directive: defer the remainder of House of Dextra after its graph adapter and recurrent-controller primitives; complete all other methods first.
+Current implementation directive: defer the remainder of House of Dextra after its graph adapter and recurrent-controller primitives. Transformer Transformer is also omitted from the active baseline set; retain its experimental implementation, but do not block completion on it. Complete PPO + NGOpt, CMA-ES, FastTD3, and Stackelberg PPO.
 
 ## Settled decisions
 
@@ -544,7 +544,7 @@ For every method:
 - PPO + NGOpt and CMA-ES entry points are implemented.
 - FastTD3 has a two-phase combined action space, phase-projected actor actions, and executed-action replay storage.
 - Stackelberg PPO has a lazy design-to-battle environment and upstream-problem adapter.
-- Transformer Transformer has native Pokemon modalities, task conditioning, held-out splitting, training, generation, and evaluation entry points.
+- Transformer Transformer has an experimental implementation but is omitted from the active baseline set.
 - The cross-baseline runner validates and combines the common artifact contract.
 - House of Dextra remains intentionally deferred after its graph and recurrent-controller primitives.
 

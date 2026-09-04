@@ -462,7 +462,10 @@ class RolloutTeamOptimizerCallback(BaseCallback):
         # The controller is unchanged while all candidates receive the same number
         # of complete, deterministic evaluation battles.
         evaluation_returns = evaluate_candidate_population(
-            self.model, self.training_env, self.evaluation_episodes
+            self.model,
+            self.training_env,
+            self.evaluation_episodes,
+            seed=self.seed + self.rollout_index * self.evaluation_episodes,
         )
         for candidate, parameters, evaluation_return in zip(
             self.candidates, self.parameters, evaluation_returns, strict=True
@@ -510,7 +513,11 @@ class RolloutTeamOptimizerCallback(BaseCallback):
                 self.incumbent_return = float(
                     np.mean(
                         evaluate_candidate_population(
-                            self.model, self.training_env, self.evaluation_episodes
+                            self.model,
+                            self.training_env,
+                            self.evaluation_episodes,
+                            seed=self.seed
+                            + self.rollout_index * self.evaluation_episodes,
                         )
                     )
                 )

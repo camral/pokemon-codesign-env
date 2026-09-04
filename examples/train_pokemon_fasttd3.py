@@ -25,6 +25,7 @@ from pokemon_codesign_env.fasttd3_tracking import (
     FastTD3RunTracker,
     executed_action_array,
 )
+from pokemon_codesign_env.fasttd3_vector_env import FastTD3ShardedVectorEnv
 from pokemon_codesign_env.observations import HumanVisibleBattleEncoder
 
 BASELINE_ROOT = Path(__file__).resolve().parents[2] / "codesign-baselines" / "fasttd3_rl"
@@ -58,6 +59,9 @@ class PokemonFastTD3Args(BaseArgs):
     use_wandb: bool = False
     exp_name: str = "pokemon_fasttd3"
     output_dir: Path = Path("runs/pokemon_fasttd3")
+    vec_env: str = "sharded"
+    envs_per_worker: int = 8
+    showdown_shards: int = 1
 
 
 _args: PokemonFastTD3Args | None = None
@@ -81,6 +85,10 @@ def get_args():
     if _args.obs_normalization:
         raise ValueError("Pokemon phase and legality projection requires --no-obs-normalization")
     _layout = action_layout(_args.environment)
+    if _args.vec_env not in {"sync", "sharded"}:
+        raise ValueError("vec-env must be 'sync' or 'sharded'")
+    if _args.showdown_shards < 1:
+        raise ValueError("showdown-shards must be positive")
     _started = time.monotonic()
     return _args
 
@@ -91,26 +99,30 @@ def _make_envs(*_unused, **_unused_kwargs):
         raise RuntimeError("Arguments must be parsed before environments are created")
     from codesign.gymnasium_env import GymnasiumVectorEnv
 
-    kwargs = json.dumps(
-        {
-            "environment": _args.environment,
-            "showdown_host": _args.showdown_host,
-            "showdown_port": _args.showdown_port,
-            "challenge_timeout": _args.challenge_timeout,
-            "save_replays": str(_args.output_dir / "replays"),
-        }
-    )
+    def environment_kwargs(rank, *, evaluation=False):
+        return json.dumps(
+            {
+                "environment": _args.environment,
+                "showdown_host": _args.showdown_host,
+                "showdown_port": _args.showdown_port + rank % _args.showdown_shards,
+                "challenge_timeout": _args.challenge_timeout,
+                "save_replays": str(_args.output_dir / "replays") if evaluation else False,
+            }
+        )
+
     common = dict(
         env_name=_args.env_name,
         seed=_args.seed,
         device=torch.device(_args.device),
         env_factory="pokemon_codesign_env.fasttd3_factory:make_env",
-        env_kwargs=kwargs,
         max_episode_steps=_args.max_episode_steps,
-        normalize_actions=False,
     )
 
-    class ExecutedActionVectorEnv(GymnasiumVectorEnv):
+    base_vector_env = (
+        GymnasiumVectorEnv if _args.vec_env == "sync" else FastTD3ShardedVectorEnv
+    )
+
+    class ExecutedActionVectorEnv(base_vector_env):
         """Expose the exact environment-retained actions to replay insertion."""
 
         last_executed_actions = None
@@ -133,10 +145,28 @@ def _make_envs(*_unused, **_unused_kwargs):
             )
             return result
 
-    training = ExecutedActionVectorEnv(num_envs=_args.num_envs, **common)
-    evaluation = ExecutedActionVectorEnv(
-        num_envs=_args.num_eval_envs, **{**common, "seed": _args.seed + 10_000}
-    )
+    def build(num_envs, seed, *, evaluation=False):
+        if _args.vec_env == "sync":
+            return ExecutedActionVectorEnv(
+                num_envs=num_envs,
+                seed=seed,
+                env_kwargs=environment_kwargs(0, evaluation=evaluation),
+                normalize_actions=False,
+                **common,
+            )
+        return ExecutedActionVectorEnv(
+            num_envs=num_envs,
+            seed=seed,
+            env_kwargs_by_rank=[
+                environment_kwargs(rank, evaluation=evaluation) for rank in range(num_envs)
+            ],
+            envs_per_worker=_args.envs_per_worker,
+            step_timeout=_args.challenge_timeout,
+            **common,
+        )
+
+    training = build(_args.num_envs, _args.seed)
+    evaluation = build(_args.num_eval_envs, _args.seed + 10_000, evaluation=True)
     _training_env = training
     _evaluation_env = evaluation
     return training, evaluation, evaluation

@@ -30,6 +30,7 @@ class PokemonTransformerTransformer(nn.Module):
         self.design_input = nn.Linear(design_dimension, width)
         self.state_input = nn.Linear(observation_dimension, width)
         self.task_embedding = nn.Embedding(task_count, width)
+        self.generation_tokens = nn.Parameter(torch.zeros(2, width))
         encoder_layer = nn.TransformerEncoderLayer(
             width, heads, width * 4, batch_first=True, activation="gelu"
         )
@@ -51,11 +52,12 @@ class PokemonTransformerTransformer(nn.Module):
                 legal = legal.clone()
                 legal[no_legal, 0] = True
             action_logits = action_logits.masked_fill(~legal, float("-inf"))
-        generated_design = torch.sigmoid(self.design_head(encoded[:, 0]))
+        generation_input = self.generation_tokens.unsqueeze(0) + task.unsqueeze(1)
+        generation_encoding = self.backbone(generation_input)
+        generated_design = torch.sigmoid(self.design_head(generation_encoding[:, 0]))
         return action_logits, generated_design
 
     def generate_design(self, task_ids):
         task = self.task_embedding(task_ids)
-        placeholder = torch.zeros_like(task)
-        encoded = self.backbone(torch.stack((task, placeholder + task), dim=1))
+        encoded = self.backbone(self.generation_tokens.unsqueeze(0) + task.unsqueeze(1))
         return torch.sigmoid(self.design_head(encoded[:, 0]))

@@ -28,12 +28,14 @@ class PokemonTrajectoryWriter:
         self.team_parameters = []
         self.tasks = []
 
-    def add_episode(self, design, parameters, task, transitions):
+    def add_episode(self, design, parameters, task, transitions, *, held_out: bool = False):
         episode_id = len(self.team_parameters)
         self.team_parameters.append(parameters)
         self.tasks.append(task)
         for step, (observation, mask, action, reward) in enumerate(transitions):
-            self.rows.append((episode_id, step, design, observation, mask, action, reward))
+            self.rows.append(
+                (episode_id, step, design, observation, mask, action, reward, held_out)
+            )
 
     def write(self, path: Path, *, schema: dict):
         import zarr
@@ -41,7 +43,7 @@ class PokemonTrajectoryWriter:
         if not self.rows:
             raise ValueError("Cannot write an empty trajectory dataset")
         root = zarr.open_group(str(path), mode="w")
-        episode_ids, steps, designs, observations, masks, actions, rewards = zip(
+        episode_ids, steps, designs, observations, masks, actions, rewards, held_out = zip(
             *self.rows, strict=True
         )
         arrays = {
@@ -52,6 +54,7 @@ class PokemonTrajectoryWriter:
             "action_mask": np.asarray(masks, dtype=np.bool_),
             "control": np.asarray(actions, dtype=np.int64),
             "reward": np.asarray(rewards, dtype=np.float32),
+            "held_out": np.asarray(held_out, dtype=np.bool_),
         }
         for name, array in arrays.items():
             root.create_array(name, data=array)

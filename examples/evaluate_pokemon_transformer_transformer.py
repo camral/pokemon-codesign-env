@@ -38,6 +38,13 @@ def main():
     model = PokemonTransformerTransformer(**checkpoint["configuration"]).to(device)
     model.load_state_dict(checkpoint["state_dict"])
     model.eval()
+    task_vocabulary = checkpoint.get("task_vocabulary", {args.environment: 0})
+    if args.environment not in task_vocabulary:
+        raise ValueError(
+            f"Checkpoint has no task token for {args.environment!r}; available: "
+            f"{sorted(task_vocabulary)}"
+        )
+    task_id = int(task_vocabulary[args.environment])
     environment_class = ENVIRONMENTS[args.environment]
     format_config = FormatConfig.from_showdown(environment_class.BATTLE_FORMAT)
     adapter = TeamDesignVectorAdapter(make_all_attribute_search_config(format_config))
@@ -47,7 +54,9 @@ def main():
     keys = tuple(encoder.observation_space.spaces)
     rng = np.random.default_rng(args.seed)
     with torch.no_grad():
-        centre = model.generate_design(torch.zeros(1, dtype=torch.long, device=device))[0]
+        centre = model.generate_design(torch.full((1,), task_id, dtype=torch.long, device=device))[
+            0
+        ]
     candidates = np.clip(
         centre.cpu().numpy()[None, :]
         + rng.normal(0, args.design_noise, size=(args.candidates, adapter.dimension)),
@@ -69,7 +78,9 @@ def main():
         for episode in range(args.episodes):
             env = environment_class(team=team, observation_encoder=encoder)
             try:
-                observation, _ = env.reset(seed=args.seed + candidate_index * args.episodes + episode)
+                observation, _ = env.reset(
+                    seed=args.seed + candidate_index * args.episodes + episode
+                )
                 terminated = truncated = False
                 episode_return = 0.0
                 while not terminated and not truncated:
@@ -78,7 +89,7 @@ def main():
                         logits, _ = model(
                             torch.as_tensor(design[None, :], dtype=torch.float32, device=device),
                             torch.as_tensor(state[None, :], device=device),
-                            torch.zeros(1, dtype=torch.long, device=device),
+                            torch.full((1,), task_id, dtype=torch.long, device=device),
                             torch.as_tensor(observation["action_mask"][None, :], device=device),
                         )
                     action = int(logits.argmax(dim=-1).item())

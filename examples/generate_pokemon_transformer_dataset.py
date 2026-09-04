@@ -27,12 +27,21 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--controller", type=Path, required=True)
     parser.add_argument("--episodes", type=int, default=1_000)
-    parser.add_argument("--environment", choices=ENVIRONMENTS, default="random")
+    parser.add_argument(
+        "--environments",
+        nargs="+",
+        choices=ENVIRONMENTS,
+        default=["random", "max-base-power", "simple-heuristics"],
+    )
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--held-out-fraction", type=float, default=0.2)
     parser.add_argument("--output", type=Path, default=Path("runs/pokemon_transformer/data.zarr"))
     args = parser.parse_args()
-    environment_class = ENVIRONMENTS[args.environment]
+    environment_classes = [ENVIRONMENTS[name] for name in args.environments]
+    environment_class = environment_classes[0]
     format_config = FormatConfig.from_showdown(environment_class.BATTLE_FORMAT)
+    if any(format_config.format_id != cls.BATTLE_FORMAT for cls in environment_classes):
+        raise ValueError("Every task in one dataset must share a battle format/action ABI")
     adapter = TeamDesignVectorAdapter(make_all_attribute_search_config(format_config))
     encoder = HumanVisibleBattleEncoder.from_showdown(
         format_config, observation_config=ObservationConfig(team_size=6)
@@ -43,6 +52,8 @@ def main():
     writer = None
     rng = np.random.default_rng(args.seed)
     for episode in range(args.episodes):
+        task = args.environments[episode % len(args.environments)]
+        environment_class = ENVIRONMENTS[task]
         while True:
             design = rng.uniform(size=adapter.dimension)
             parameters = adapter.decode(design)
@@ -72,7 +83,13 @@ def main():
                 transitions.append((state, mask, int(action), float(reward)))
         finally:
             env.close()
-        writer.add_episode(design, parameters, args.environment, transitions)
+        writer.add_episode(
+            design,
+            parameters,
+            task,
+            transitions,
+            held_out=rng.random() < args.held_out_fraction,
+        )
     schema = {
         "version": 1,
         "team_design": adapter.schema(),

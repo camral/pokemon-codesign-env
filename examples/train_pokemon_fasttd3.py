@@ -8,6 +8,7 @@ import types
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import torch
 
 from pokemon_codesign_env.baseline_adapters.fasttd3 import project_tensor_actions
@@ -45,6 +46,7 @@ class PokemonFastTD3Args(BaseArgs):
 
 _args: PokemonFastTD3Args | None = None
 _layout: dict[str, int] | None = None
+_training_env = None
 
 
 def get_args():
@@ -65,6 +67,7 @@ def get_args():
 
 
 def _make_envs(*_unused, **_unused_kwargs):
+    global _training_env
     if _args is None:
         raise RuntimeError("Arguments must be parsed before environments are created")
     from codesign.gymnasium_env import GymnasiumVectorEnv
@@ -86,10 +89,28 @@ def _make_envs(*_unused, **_unused_kwargs):
         max_episode_steps=_args.max_episode_steps,
         normalize_actions=False,
     )
-    training = GymnasiumVectorEnv(num_envs=_args.num_envs, **common)
-    evaluation = GymnasiumVectorEnv(
+
+    class ExecutedActionVectorEnv(GymnasiumVectorEnv):
+        """Expose the exact environment-retained actions to replay insertion."""
+
+        last_executed_actions = None
+
+        def step(self, actions):
+            result = super().step(actions)
+            raw_infos = result[3]["gymnasium"]
+            if "executed_actions" not in raw_infos:
+                raise KeyError("Pokemon environments must return executed_actions")
+            executed = np.asarray(raw_infos["executed_actions"], dtype=np.float32)
+            self.last_executed_actions = torch.as_tensor(
+                executed, device=self.sim_device, dtype=torch.float32
+            )
+            return result
+
+    training = ExecutedActionVectorEnv(num_envs=_args.num_envs, **common)
+    evaluation = ExecutedActionVectorEnv(
         num_envs=_args.num_eval_envs, **{**common, "seed": _args.seed + 10_000}
     )
+    _training_env = training
     return training, evaluation, evaluation
 
 
@@ -98,6 +119,7 @@ def main():
         raise RuntimeError(f"FastTD3 baseline not found at {SOURCE_ROOT}")
     import fast_td3 as upstream_models
     import train as upstream_train
+    from fast_td3_utils import SimpleReplayBuffer
 
     upstream_actor = upstream_models.Actor
 
@@ -121,6 +143,15 @@ def main():
             return self._project(observations, actions)
 
     upstream_models.Actor = PokemonActor
+
+    class ExecutedActionReplayBuffer(SimpleReplayBuffer):
+        def extend(self, transition):
+            if _training_env is None or _training_env.last_executed_actions is None:
+                raise RuntimeError("No executed Pokemon actions are available for replay")
+            transition["actions"] = _training_env.last_executed_actions
+            return super().extend(transition)
+
+    upstream_train.SimpleReplayBuffer = ExecutedActionReplayBuffer
     environment_shim = types.ModuleType("environments.mujoco_playground_env")
     environment_shim.make_env = _make_envs
     sys.modules[environment_shim.__name__] = environment_shim

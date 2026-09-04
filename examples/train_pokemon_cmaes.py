@@ -91,10 +91,6 @@ def main():
     args.output_dir.mkdir(parents=True, exist_ok=True)
     np.save(args.output_dir / "best_controller.npy", result.policy)
     controller.set_parameters(np.load(args.output_dir / "best_controller.npy"))
-    designer = TeamDesigner(search_config, validate_teams=True)
-    designer.rng = np.random.default_rng(args.seed + 100_000)
-    designer.set_optimizable_parameter_values(parameters)
-    packed_team = designer.yield_team()
     server = ServerConfiguration(
         f"ws://{args.showdown_host}:{args.showdown_port}/showdown/websocket",
         "https://play.pokemonshowdown.com/action.php?",
@@ -102,6 +98,11 @@ def main():
     (args.output_dir / "replays").mkdir(exist_ok=True)
 
     def evaluation_env(episode):
+        evaluation_seed = args.seed + 100_000 + episode
+        designer = TeamDesigner(search_config, validate_teams=True)
+        designer.rng = np.random.default_rng(evaluation_seed)
+        designer.set_optimizable_parameter_values(parameters)
+        packed_team = designer.yield_team()
         return SeededResetEnv(
             environment_class(
                 team=packed_team,
@@ -110,7 +111,7 @@ def main():
                 challenge_timeout=args.challenge_timeout,
                 save_replays=str(args.output_dir / "replays"),
             ),
-            args.seed + 100_000 + episode,
+            evaluation_seed,
         )
 
     held_out = evaluate_isolated(

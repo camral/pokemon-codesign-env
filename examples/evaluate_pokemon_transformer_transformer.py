@@ -110,8 +110,13 @@ def main():
 
         return select
 
-    def environment_factory(team, seed_base, replay_path=False):
+    def environment_factory(parameters, seed_base, replay_path=False):
         def make(episode):
+            evaluation_seed = seed_base + episode
+            designer = TeamDesigner(adapter.search_config, validate_teams=True)
+            designer.rng = np.random.default_rng(evaluation_seed)
+            designer.set_optimizable_parameter_values(parameters)
+            team = designer.yield_team()
             return SeededResetEnv(
                 environment_class(
                     team=team,
@@ -120,38 +125,36 @@ def main():
                     challenge_timeout=args.evaluation_timeout,
                     save_replays=replay_path,
                 ),
-                seed_base + episode,
+                evaluation_seed,
             )
 
         return make
 
-    for candidate_index, design in enumerate(candidates):
+    for design in candidates:
         parameters = adapter.decode(design)
         designer = TeamDesigner(adapter.search_config, validate_teams=True)
-        designer.rng = np.random.default_rng(args.seed + candidate_index)
+        designer.rng = np.random.default_rng(args.seed + 10_000)
         designer.set_optimizable_parameter_values(parameters)
         try:
-            team = designer.yield_team()
+            designer.yield_team()
         except (RuntimeError, ValueError):
             invalid_candidates += 1
             continue
         selection = evaluate_isolated(
-            environment_factory(team, args.seed + 10_000),
+            environment_factory(parameters, args.seed + 10_000),
             action_selector(design, parameters),
             args.episodes,
             args.evaluation_timeout,
         )
-        evaluated.append((selection.mean_return, parameters, design, team))
+        evaluated.append((selection.mean_return, parameters, design))
     if not evaluated:
         raise RuntimeError("No generated candidate passed Pokemon Showdown validation")
-    selection_return, best_parameters, best_design, best_team = max(
-        evaluated, key=lambda item: item[0]
-    )
+    selection_return, best_parameters, best_design = max(evaluated, key=lambda item: item[0])
     args.output_dir.mkdir(parents=True, exist_ok=True)
     replay_dir = args.output_dir / "replays"
     replay_dir.mkdir(exist_ok=True)
     held_out = evaluate_isolated(
-        environment_factory(best_team, args.seed + 100_000, str(replay_dir)),
+        environment_factory(best_parameters, args.seed + 100_000, str(replay_dir)),
         action_selector(best_design, best_parameters),
         args.held_out_episodes,
         args.evaluation_timeout,

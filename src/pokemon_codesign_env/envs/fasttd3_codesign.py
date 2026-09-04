@@ -109,6 +109,7 @@ class FastTD3PokemonCodesignEnv(gym.Env):
             candidate_id = getattr(self.adapter, "candidate_id", None)
             self._candidate_id = candidate_id(parameters) if candidate_id else None
             designer = TeamDesigner(self.adapter.search_config, validate_teams=True)
+            designer.rng = self.np_random
             designer.set_optimizable_parameter_values(parameters)
             packed_team = designer.yield_team()
             self._battle_env = self.battle_env_factory(packed_team)

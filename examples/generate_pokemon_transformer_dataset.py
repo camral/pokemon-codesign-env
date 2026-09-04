@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+from poke_env.ps_client import ServerConfiguration
 from stable_baselines3 import PPO
 
 from pokemon_codesign_env.baseline_adapters import (
@@ -36,6 +37,9 @@ def main():
     )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--held-out-fraction", type=float, default=0.2)
+    parser.add_argument("--showdown-host", default="127.0.0.1")
+    parser.add_argument("--showdown-port", type=int, default=8000)
+    parser.add_argument("--challenge-timeout", type=float, default=60.0)
     parser.add_argument("--output", type=Path, default=Path("runs/pokemon_transformer/data.zarr"))
     args = parser.parse_args()
     held_out_episodes = held_out_episode_indices(
@@ -55,6 +59,10 @@ def main():
     model = PPO.load(args.controller)
     writer = None
     rng = np.random.default_rng(args.seed)
+    server = ServerConfiguration(
+        f"ws://{args.showdown_host}:{args.showdown_port}/showdown/websocket",
+        "https://play.pokemonshowdown.com/action.php?",
+    )
     for episode in range(args.episodes):
         task = args.environments[episode % len(args.environments)]
         environment_class = ENVIRONMENTS[task]
@@ -69,7 +77,12 @@ def main():
                 break
             except ValueError:
                 continue
-        env = environment_class(team=packed_team, observation_encoder=encoder)
+        env = environment_class(
+            team=packed_team,
+            observation_encoder=encoder,
+            server_configuration=server,
+            challenge_timeout=args.challenge_timeout,
+        )
         transitions = []
         try:
             observation, _ = env.reset(seed=args.seed + episode)

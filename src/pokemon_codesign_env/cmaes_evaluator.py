@@ -61,10 +61,10 @@ class PokemonCMAEvaluator:
         )
         controller = CompactBattleController(observation_space, action_count)
         try:
+            evaluation_seed = self.evaluation_seed
             parameters = adapter.decode(np.clip(design, 0, 1))
             designer = TeamDesigner(search_config, validate_teams=True)
-            stable_seed = int(adapter.candidate_id(parameters)[:16], 16) % (2**32)
-            designer.rng = np.random.default_rng(stable_seed)
+            designer.rng = np.random.default_rng(evaluation_seed)
             designer.set_optimizable_parameter_values(parameters)
             packed_team = designer.yield_team()
             controller.set_parameters(policy)
@@ -82,7 +82,7 @@ class PokemonCMAEvaluator:
             challenge_timeout=self.challenge_timeout,
         )
         try:
-            observation, _ = env.reset(seed=self.evaluation_seed)
+            observation, _ = env.reset(seed=evaluation_seed)
             terminated = truncated = False
             score = 0.0
             while not terminated and not truncated:

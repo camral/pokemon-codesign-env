@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import numpy as np
 from poke_env.teambuilder import Teambuilder
 
@@ -81,3 +83,22 @@ def test_house_controller_batch_executes_highest_scoring_legal_action(monkeypatc
     assert rewards.tolist() == [1.0, -1.0]
     assert dones.tolist() == [True, False]
     assert info["selected_battle_action"].tolist() == [4, 3]
+
+
+def test_house_training_disables_torch_compile_and_restores_upstream_builder():
+    def builder(**kwargs):
+        return {"params": {"config": {"value": kwargs["value"]}}}
+
+    module = SimpleNamespace(build_runner_config=builder)
+
+    def train_family(**kwargs):
+        config = module.build_runner_config(value=kwargs["value"])
+        assert config["params"]["config"]["torch_compile"] is False
+        return config
+
+    module.train_family = train_family
+
+    result = house_problem.train_house_family(module, value=3)
+
+    assert result["params"]["config"]["value"] == 3
+    assert module.build_runner_config is builder

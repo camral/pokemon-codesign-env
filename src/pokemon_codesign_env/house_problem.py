@@ -221,3 +221,20 @@ class PokemonHouseCodesignProblem:
 
 def make_problem(config: Mapping[str, Any]) -> PokemonHouseCodesignProblem:
     return PokemonHouseCodesignProblem(config)
+
+
+def train_house_family(train_controller_module, **kwargs) -> dict:
+    """Run upstream training with portable eager-mode PyTorch checkpoints."""
+
+    original_builder = train_controller_module.build_runner_config
+
+    def eager_builder(**builder_kwargs):
+        config = original_builder(**builder_kwargs)
+        config["params"]["config"]["torch_compile"] = False
+        return config
+
+    train_controller_module.build_runner_config = eager_builder
+    try:
+        return train_controller_module.train_family(**kwargs)
+    finally:
+        train_controller_module.build_runner_config = original_builder

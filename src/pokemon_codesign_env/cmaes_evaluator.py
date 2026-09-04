@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 from gymnasium import spaces
 from poke_env.environment import SinglesEnv
+from poke_env.ps_client import ServerConfiguration
 
 from pokemon_codesign_env.baseline_adapters import (
     TeamDesignVectorAdapter,
@@ -18,11 +19,32 @@ from pokemon_codesign_env.team_designer import TeamDesigner
 
 
 class PokemonCMAEvaluator:
-    def __init__(self, environment: str, seed: int, invalid_reward: float = -1_000_000):
+    def __init__(
+        self,
+        environment: str,
+        seed: int,
+        evaluation_repeats: int = 1,
+        invalid_reward: float = -1_000_000,
+        showdown_host: str = "127.0.0.1",
+        showdown_port: int = 8000,
+        challenge_timeout: float = 60.0,
+    ):
+        if evaluation_repeats < 1:
+            raise ValueError("evaluation_repeats must be positive")
         self.environment = environment
         self.seed = seed
+        self.evaluation_repeats = evaluation_repeats
         self.invalid_reward = invalid_reward
+        self.showdown_host = showdown_host
+        self.showdown_port = showdown_port
+        self.challenge_timeout = challenge_timeout
         self.evaluation_index = 0
+
+    @property
+    def evaluation_seed(self) -> int:
+        """Repeat the identical opponent-seed panel for every candidate."""
+
+        return self.seed + self.evaluation_index % self.evaluation_repeats
 
     def __call__(self, design, policy, device=None):
         del device
@@ -49,9 +71,18 @@ class PokemonCMAEvaluator:
         except (RuntimeError, TypeError, ValueError):
             return self.invalid_reward
 
-        env = environment_class(team=packed_team, observation_encoder=encoder)
+        server = ServerConfiguration(
+            f"ws://{self.showdown_host}:{self.showdown_port}/showdown/websocket",
+            "https://play.pokemonshowdown.com/action.php?",
+        )
+        env = environment_class(
+            team=packed_team,
+            observation_encoder=encoder,
+            server_configuration=server,
+            challenge_timeout=self.challenge_timeout,
+        )
         try:
-            observation, _ = env.reset(seed=self.seed + self.evaluation_index)
+            observation, _ = env.reset(seed=self.evaluation_seed)
             terminated = truncated = False
             score = 0.0
             while not terminated and not truncated:

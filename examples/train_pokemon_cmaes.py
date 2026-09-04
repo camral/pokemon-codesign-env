@@ -8,7 +8,6 @@ import time
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
 from poke_env.environment import SinglesEnv
@@ -22,22 +21,10 @@ from pokemon_codesign_env.baseline_artifacts import RunMetrics, write_run_artifa
 from pokemon_codesign_env.cmaes_evaluator import PokemonCMAEvaluator
 from pokemon_codesign_env.compact_controller import CompactBattleController
 from pokemon_codesign_env.configs import FormatConfig, ObservationConfig
-from pokemon_codesign_env.evaluation import evaluate_isolated
+from pokemon_codesign_env.evaluation import SeededResetEnv, evaluate_isolated
 from pokemon_codesign_env.fasttd3_factory import ENVIRONMENTS
 from pokemon_codesign_env.observations import HumanVisibleBattleEncoder
 from pokemon_codesign_env.team_designer import TeamDesigner
-
-
-class _SeededResetEnv(gym.Wrapper):
-    def __init__(self, env, seed):
-        super().__init__(env)
-        self.initial_seed = seed
-
-    def reset(self, *, seed=None, options=None):
-        return self.env.reset(
-            seed=self.initial_seed if seed is None else seed,
-            options=options,
-        )
 
 
 def parse_args():
@@ -115,7 +102,7 @@ def main():
     (args.output_dir / "replays").mkdir(exist_ok=True)
 
     def evaluation_env(episode):
-        return _SeededResetEnv(
+        return SeededResetEnv(
             environment_class(
                 team=packed_team,
                 observation_encoder=encoder,

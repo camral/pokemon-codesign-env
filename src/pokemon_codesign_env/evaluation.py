@@ -7,6 +7,21 @@ from dataclasses import dataclass
 from typing import Any
 
 import cloudpickle
+import gymnasium as gym
+
+
+class SeededResetEnv(gym.Wrapper):
+    """Apply a fixed seed when an external evaluator calls reset without one."""
+
+    def __init__(self, env, seed: int):
+        super().__init__(env)
+        self.initial_seed = seed
+
+    def reset(self, *, seed=None, options=None):
+        return self.env.reset(
+            seed=self.initial_seed if seed is None else seed,
+            options=options,
+        )
 
 
 class _CloudpickleWrapper:

@@ -19,6 +19,64 @@ POKEMON_MODALITIES = (
 )
 
 
+def held_out_episode_indices(episodes: int, fraction: float, seed: int) -> set[int]:
+    """Choose a reproducible non-empty split while preserving training data."""
+
+    if episodes < 2:
+        raise ValueError("At least two episodes are required for train/held-out splits")
+    if not 0 < fraction < 1:
+        raise ValueError("held-out fraction must be strictly between zero and one")
+    count = min(max(round(episodes * fraction), 1), episodes - 1)
+    selected = np.random.default_rng(seed).choice(episodes, size=count, replace=False)
+    return {int(index) for index in selected}
+
+
+def encode_team_modalities(parameters: dict, vocabularies: dict) -> tuple[np.ndarray, ...]:
+    """Encode one canonical TeamDesigner team with dataset vocabularies."""
+
+    categorical = ("species", "item", "nature", "ability", "gender", "tera_type")
+    pokemon_tokens = np.zeros((6, 7), dtype=np.int64)
+    move_tokens = np.zeros((6, 4), dtype=np.int64)
+    evs = np.zeros((6, 6), dtype=np.int64)
+    ivs = np.zeros_like(evs)
+    stats = ("hp", "atk", "def", "spa", "spd", "spe")
+    for slot in range(6):
+        pokemon = parameters[f"pokemon_{slot}"]
+        pokemon_tokens[slot, :6] = [
+            vocabularies[attribute].get(pokemon.get(attribute), 0) for attribute in categorical
+        ]
+        pokemon_tokens[slot, 6] = int(pokemon["happiness"])
+        move_tokens[slot, : len(pokemon["moves"][:4])] = [
+            vocabularies["move"].get(move, 0) for move in pokemon["moves"][:4]
+        ]
+        evs[slot] = [pokemon["evs"][stat] for stat in stats]
+        ivs[slot] = [pokemon["ivs"][stat] for stat in stats]
+    return pokemon_tokens, move_tokens, evs, ivs
+
+
+def native_team_features(
+    pokemon: np.ndarray,
+    move: np.ndarray,
+    ev: np.ndarray,
+    iv: np.ndarray,
+    scales: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Flatten native modalities and consistently scale each feature column."""
+
+    arrays = [np.asarray(value, dtype=np.float32) for value in (pokemon, move, ev, iv)]
+    unbatched = arrays[0].ndim == 2
+    if unbatched:
+        arrays = [value[None, ...] for value in arrays]
+    features = np.concatenate([value.reshape(len(value), -1) for value in arrays], axis=1)
+    if scales is None:
+        scales = np.maximum(features.max(axis=0), 1.0)
+    scales = np.asarray(scales, dtype=np.float32)
+    if scales.shape != (features.shape[1],):
+        raise ValueError(f"Expected {features.shape[1]} native scales, got {scales.shape}")
+    normalized = features / scales
+    return (normalized[0] if unbatched else normalized), scales
+
+
 class PokemonTrajectoryWriter:
     def __init__(self, design_dimension: int, observation_dimension: int, action_count: int):
         self.design_dimension = design_dimension
@@ -90,24 +148,10 @@ class PokemonTrajectoryWriter:
                 value: index + 1 for index, value in enumerate(sorted(values))
             }
 
-        pokemon_tokens = np.zeros((len(self.team_parameters), 6, 7), dtype=np.int64)
-        move_tokens = np.zeros((len(self.team_parameters), 6, 4), dtype=np.int64)
-        evs = np.zeros((len(self.team_parameters), 6, 6), dtype=np.int64)
-        ivs = np.zeros_like(evs)
-        stats = ("hp", "atk", "def", "spa", "spd", "spe")
-        for episode, team in enumerate(self.team_parameters):
-            for slot in range(6):
-                pokemon = team[f"pokemon_{slot}"]
-                pokemon_tokens[episode, slot, :6] = [
-                    vocabularies[attribute].get(pokemon.get(attribute), 0)
-                    for attribute in categorical
-                ]
-                pokemon_tokens[episode, slot, 6] = int(pokemon["happiness"])
-                move_tokens[episode, slot, : len(pokemon["moves"][:4])] = [
-                    vocabularies["move"][move] for move in pokemon["moves"][:4]
-                ]
-                evs[episode, slot] = [pokemon["evs"][stat] for stat in stats]
-                ivs[episode, slot] = [pokemon["ivs"][stat] for stat in stats]
+        encoded = [encode_team_modalities(team, vocabularies) for team in self.team_parameters]
+        pokemon_tokens, move_tokens, evs, ivs = (
+            np.stack([episode[index] for episode in encoded]) for index in range(4)
+        )
         task_tokens = np.asarray(
             [vocabularies["opponent_task"][task] for task in self.tasks], dtype=np.int64
         )

@@ -16,6 +16,7 @@ class PokemonTransformerTransformer(nn.Module):
         width: int = 256,
         layers: int = 4,
         heads: int = 8,
+        native_dimension: int = 0,
     ):
         super().__init__()
         self.configuration = {
@@ -26,8 +27,10 @@ class PokemonTransformerTransformer(nn.Module):
             "width": width,
             "layers": layers,
             "heads": heads,
+            "native_dimension": native_dimension,
         }
         self.design_input = nn.Linear(design_dimension, width)
+        self.native_input = nn.Linear(native_dimension, width) if native_dimension else None
         self.state_input = nn.Linear(observation_dimension, width)
         self.task_embedding = nn.Embedding(task_count, width)
         self.generation_tokens = nn.Parameter(torch.zeros(2, width))
@@ -38,11 +41,14 @@ class PokemonTransformerTransformer(nn.Module):
         self.control_head = nn.Linear(width, action_count)
         self.design_head = nn.Linear(width, design_dimension)
 
-    def forward(self, design, battle_state, task_ids, action_mask=None):
+    def forward(self, design, battle_state, task_ids, action_mask=None, native_team=None):
         task = self.task_embedding(task_ids)
-        tokens = torch.stack(
-            (self.design_input(design) + task, self.state_input(battle_state) + task), dim=1
-        )
+        design_token = self.design_input(design)
+        if self.native_input is not None:
+            if native_team is None:
+                raise ValueError("native_team is required by this checkpoint")
+            design_token = design_token + self.native_input(native_team)
+        tokens = torch.stack((design_token + task, self.state_input(battle_state) + task), dim=1)
         encoded = self.backbone(tokens)
         action_logits = self.control_head(encoded[:, 1])
         if action_mask is not None:

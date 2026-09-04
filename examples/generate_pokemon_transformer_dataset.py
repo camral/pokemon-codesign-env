@@ -20,6 +20,7 @@ from pokemon_codesign_env.team_designer import TeamDesigner
 from pokemon_codesign_env.transformer_data import (
     PokemonTrajectoryWriter,
     flatten_battle_observation,
+    held_out_episode_indices,
 )
 
 
@@ -37,6 +38,9 @@ def main():
     parser.add_argument("--held-out-fraction", type=float, default=0.2)
     parser.add_argument("--output", type=Path, default=Path("runs/pokemon_transformer/data.zarr"))
     args = parser.parse_args()
+    held_out_episodes = held_out_episode_indices(
+        args.episodes, args.held_out_fraction, args.seed + 1
+    )
     environment_classes = [ENVIRONMENTS[name] for name in args.environments]
     environment_class = environment_classes[0]
     format_config = FormatConfig.from_showdown(environment_class.BATTLE_FORMAT)
@@ -88,7 +92,7 @@ def main():
             parameters,
             task,
             transitions,
-            held_out=rng.random() < args.held_out_fraction,
+            held_out=episode in held_out_episodes,
         )
     schema = {
         "version": 1,

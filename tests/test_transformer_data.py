@@ -1,9 +1,15 @@
 import json
 
 import numpy as np
+import pytest
 import zarr
 
-from pokemon_codesign_env.transformer_data import PokemonTrajectoryWriter
+from pokemon_codesign_env.transformer_data import (
+    PokemonTrajectoryWriter,
+    encode_team_modalities,
+    held_out_episode_indices,
+    native_team_features,
+)
 
 
 def _parameters(species):
@@ -43,3 +49,30 @@ def test_writer_materializes_native_modalities_and_split(tmp_path):
     assert bool(root["held_out"][0])
     assert root["opponent_task"][0] > 0
     assert "species" in json.loads(root.attrs["vocabularies"])
+
+
+def test_held_out_split_is_reproducible_and_never_empty_or_complete():
+    first = held_out_episode_indices(5, 0.01, 7)
+    second = held_out_episode_indices(5, 0.01, 7)
+    assert first == second
+    assert len(first) == 1
+    assert len(held_out_episode_indices(5, 0.99, 7)) == 4
+
+    with pytest.raises(ValueError):
+        held_out_episode_indices(1, 0.2, 7)
+
+
+def test_native_features_round_trip_through_saved_vocabulary(tmp_path):
+    parameters = _parameters("native")
+    writer = PokemonTrajectoryWriter(3, 2, 4)
+    writer.add_episode(np.zeros(3), parameters, "random", [(np.zeros(2), np.ones(4), 0, 0.0)])
+    path = tmp_path / "native.zarr"
+    writer.write(path, schema={})
+    root = zarr.open_group(str(path), mode="r")
+    vocabularies = json.loads(root.attrs["vocabularies"])
+    encoded = encode_team_modalities(parameters, vocabularies)
+
+    np.testing.assert_array_equal(encoded[0], root["pokemon"][0])
+    np.testing.assert_array_equal(encoded[1], root["move"][0])
+    features, scales = native_team_features(*encoded)
+    assert features.shape == scales.shape == (138,)

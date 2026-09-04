@@ -553,7 +553,9 @@ For every method:
 
 - The full local unit/integration suite reports 38 passing tests.
 - PPO + NGOpt completed a minimal live run against the bundled Pokemon Showdown server, including training, complete-battle evaluation, checkpoint/team/schema/metrics output, and HTML replay output.
-- CMA-ES, FastTD3, and Stackelberg PPO have focused adapter and rollout-contract tests, but full live training runs remain hardware/battle-budget validation tasks rather than blockers on the implementation.
+- CMA-ES completed a minimal live optimization and held-out evaluation, including controller reload and all common artifacts.
+- FastTD3 completed live embodiment/battle transitions, replay insertion, actor/critic updates, and checkpoint/artifact output; the intentionally short smoke did not run to battle termination.
+- Stackelberg PPO completed a live leader/follower epoch, best-checkpoint reload, held-out evaluation, and common artifacts.
 
 ## Known global concerns
 

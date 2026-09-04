@@ -13,6 +13,8 @@ class _Adapter:
 
 
 class _Battle:
+    battle1 = type("BattleState", (), {"won": True, "turn": 9})()
+
     def reset(self, seed=None):
         return {"state": [0.0], "action_mask": [0, 1, 1]}, {}
 
@@ -50,4 +52,6 @@ def test_follower_node_scores_map_to_one_masked_global_action(monkeypatch):
 
     assert terminated
     assert info["selected_battle_action"] == 2
+    assert info["won"] is True
+    assert info["turn"] == 9
     assert problem.edges.shape == (2, 30)

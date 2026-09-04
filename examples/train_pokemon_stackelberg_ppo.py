@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import pickle
 import shutil
 import sys
 import time
@@ -29,6 +30,7 @@ def parse_args():
     parser.add_argument("--showdown-shards", type=int, default=1)
     parser.add_argument("--challenge-timeout", type=float, default=60)
     parser.add_argument("--min-batch-size", type=int, default=50_000)
+    parser.add_argument("--mini-batch-size", type=int, default=2_048)
     parser.add_argument("--eval-batch-size", type=int, default=10_000)
     parser.add_argument("--final-evaluation-steps", type=int, default=1_000)
     return parser.parse_args()
@@ -36,6 +38,8 @@ def parse_args():
 
 def main():
     args = parse_args()
+    if not 0 < args.mini_batch_size <= args.min_batch_size:
+        raise ValueError("mini-batch-size must be positive and no larger than min-batch-size")
     started = time.monotonic()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     (args.output_dir / "replays").mkdir(exist_ok=True)
@@ -59,6 +63,7 @@ def main():
     flags.seed = args.seed
     flags.num_threads = args.num_threads
     flags.min_batch_size = args.min_batch_size
+    flags.mini_batch_size = args.mini_batch_size
     flags.eval_batch_size = args.eval_batch_size
     requested = args.device
     if requested == "auto":
@@ -85,6 +90,15 @@ def main():
     class PokemonBodyGenAgent(BodyGenAgent):
         """Create fresh poke-env clients inside every sampling worker process."""
 
+        training_battles = 0
+        training_transitions = 0
+
+        def optimize_policy(self, epoch):
+            info = super().optimize_policy(epoch)
+            self.training_battles += int(info["log"].num_episodes)
+            self.training_transitions += int(info["log"].num_steps)
+            return info
+
         def sample_worker(self, pid, queue, min_batch_size, mean_action, render):
             if pid == 0:
                 return super().sample_worker(pid, queue, min_batch_size, mean_action, render)
@@ -106,6 +120,12 @@ def main():
     if not checkpoint.is_file():
         agent.save_best_flag = True
         agent.save_checkpoint(max(config.max_epoch_num - 1, 0))
+    with checkpoint.open("rb") as checkpoint_file:
+        best_checkpoint = pickle.load(checkpoint_file)
+    agent.policy_net.load_state_dict(best_checkpoint["policy_dict"])
+    agent.value_net.load_state_dict(best_checkpoint["value_dict"])
+    if agent.obs_norm is not None and best_checkpoint["obs_norm"] is not None:
+        agent.obs_norm.load_state_dict(best_checkpoint["obs_norm"])
     agent.env.problem.runtime_options["save_replays"] = str(args.output_dir / "replays")
     agent.env.reset_tracking()
     agent.env.seed(args.seed + 100_000)
@@ -134,7 +154,8 @@ def main():
         metrics=RunMetrics(
             mean_return=float(final_log.avg_exec_episode_reward),
             evaluation_battles=int(final_log.num_episodes),
-            environment_transitions=agent.env.environment_transitions,
+            training_battles=agent.training_battles,
+            environment_transitions=agent.training_transitions,
             win_rate=sum(known_wins) / len(known_wins) if known_wins else None,
             mean_episode_length=float(np.mean(agent.env.episode_lengths)),
             mean_turn_count=float(np.mean(known_turns)) if known_turns else None,

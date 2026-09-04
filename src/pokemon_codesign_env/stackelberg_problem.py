@@ -86,13 +86,21 @@ class PokemonStackelbergProblem:
             legal[0] = True
         selected_action = int(np.argmax(np.where(legal, scores, -np.inf)))
         observation, reward, terminated, truncated, info = self._env.step(np.int64(selected_action))
+        info = dict(info or {})
+        battle_env = getattr(self._env, "env", self._env)
+        battle = getattr(battle_env, "battle1", None)
+        if battle is not None:
+            if "won" not in info and getattr(battle, "won", None) is not None:
+                info["won"] = bool(battle.won)
+            if "turn" not in info and getattr(battle, "turn", None) is not None:
+                info["turn"] = int(battle.turn)
         self._observation = observation
         return (
             self._node_observation(),
             float(reward),
             bool(terminated),
             bool(truncated),
-            {**dict(info or {}), "selected_battle_action": selected_action},
+            {**info, "selected_battle_action": selected_action},
         )
 
     def close(self):

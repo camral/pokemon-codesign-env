@@ -93,10 +93,24 @@ class PokEnv(gymnasium.Env):
         inner_spaces = self.env.observation_space.spaces
         self.observation_space = spaces.Dict({**{name: space for name, space in inner_spaces.items() if name != "action_mask"},"action_mask": spaces.MultiBinary(max_action_space_size)})
 
-        # Reset must run before step, which PokEnv enforces itself because the registered
-        # environment disables gymnasium's OrderEnforcing wrapper to keep the extended
-        # reset(embodiment=) and step(embodiment=) signatures intact.
+        # Reset must run before step, which PokEnv enforces itself because the environment is not
+        # wrapped in gymnasium's OrderEnforcing, which would otherwise reject the extended
+        # reset(embodiment=) and step(embodiment=) signatures.
         self._started = False
+
+        # Set by make() to the Showdown server this environment owns, so closing the environment
+        # also shuts the server down.
+        self.server_context = None
+
+    def close(self) -> None:
+        """Close the battle environment and shut down an owned Showdown server."""
+        try:
+            if self.env is not None:
+                self.env.close()
+        finally:
+            if self.server_context is not None:
+                server_context, self.server_context = self.server_context, None
+                server_context.close()
 
     def _default_battle_format(self, env_kwargs: dict) -> str:
         """Return the battle format a preset uses when no FormatConfig is supplied."""

@@ -450,12 +450,14 @@ class RolloutTeamOptimizerCallback(BaseCallback):
         self.best_return = float("-inf")
         self.best_parameters = None
         self.incumbent_return = None
+        self.training_battles = 0
 
     def _on_rollout_start(self) -> None:
         self.rollout_returns = np.zeros(self.model.n_envs, dtype=np.float64)
 
     def _on_step(self) -> bool:
         self.rollout_returns += np.asarray(self.locals["rewards"], dtype=np.float64)
+        self.training_battles += int(np.count_nonzero(self.locals["dones"]))
         return True
 
     def _on_rollout_end(self) -> None:
@@ -516,8 +518,7 @@ class RolloutTeamOptimizerCallback(BaseCallback):
                             self.model,
                             self.training_env,
                             self.evaluation_episodes,
-                            seed=self.seed
-                            + self.rollout_index * self.evaluation_episodes,
+                            seed=self.seed + self.rollout_index * self.evaluation_episodes,
                         )
                     )
                 )
@@ -755,7 +756,7 @@ def make_training_callback(
 
 def evaluation_replay_dir(output_dir: Path, label: str) -> Path:
     """Create an isolated directory containing only evaluation replays."""
-    replay_dir = output_dir / "evaluation_replays" / label
+    replay_dir = output_dir / "replays" / label
     replay_dir.mkdir(parents=True, exist_ok=True)
     return replay_dir
 
@@ -1380,6 +1381,7 @@ def run_experiment(
     wandb_logger: WandbEvaluationLogger,
 ) -> None:
     """Run training or watch mode against an available Showdown server."""
+    started = time.monotonic()
     with startup_stage(args, wandb_logger, "observation_setup"):
         learner_config = make_search_config(format_config)
         observation_encoder = HumanVisibleBattleEncoder.from_showdown(
@@ -1597,10 +1599,12 @@ def run_experiment(
         metrics=RunMetrics(
             mean_return=mean_return,
             evaluation_battles=args.evaluation_episodes,
+            training_battles=team_optimizer_callback.training_battles,
             environment_transitions=args.ppo_timesteps,
             win_rate=evaluation_result.win_rate,
             mean_episode_length=evaluation_result.mean_episode_length,
             mean_turn_count=evaluation_result.mean_turn_count,
+            wall_time_seconds=time.monotonic() - started,
         ),
         metadata={
             "method": "ppo_ngopt",

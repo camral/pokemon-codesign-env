@@ -41,6 +41,7 @@ rl = [
     "torch>=2.1",
     "stable-baselines3>=2.3",
     "sb3-contrib>=2.3",
+    "rl-games==1.6.5",
     "zarr>=2.16,<3",
     "tqdm>=4.66",
     "wandb>=0.19",

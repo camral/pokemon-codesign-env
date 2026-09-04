@@ -549,7 +549,7 @@ For every method:
 
 ### Verification status
 
-- The full local unit/integration suite reports 41 passing tests.
+- The full local unit/integration suite reports 42 passing tests.
 - PPO + NGOpt completed a minimal live run against the bundled Pokemon Showdown server, including training, complete-battle evaluation, checkpoint/team/schema/metrics output, and HTML replay output.
 - CMA-ES completed a minimal live optimization and held-out evaluation, including controller reload and all common artifacts.
 - FastTD3 completed live embodiment/battle transitions, replay insertion, actor/critic updates, and checkpoint/artifact output; the intentionally short smoke did not run to battle termination.

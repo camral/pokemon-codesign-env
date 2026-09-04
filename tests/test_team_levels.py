@@ -1,6 +1,7 @@
 import numpy as np
 from poke_env.teambuilder import Teambuilder, TeambuilderPokemon
 
+from pokemon_codesign_env.configs import FormatConfig, TeamSearchConfig
 from pokemon_codesign_env.team_levels import resample_packed_team_levels
 from pokemon_codesign_env.team_pool import RandomTeamPool
 
@@ -32,3 +33,10 @@ def test_random_team_pool_sets_level_fifty_on_each_yield() -> None:
     first = levels(builder.yield_team())
     second = levels(builder.yield_team())
     assert first + second == [50, 50, 50, 50]
+
+
+def test_team_search_defaults_to_fixed_level_fifty() -> None:
+    config = TeamSearchConfig(FormatConfig.from_showdown("gen4customgame"))
+
+    assert config.level_mean == 50
+    assert config.level_std == 0

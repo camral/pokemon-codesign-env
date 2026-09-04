@@ -3,6 +3,8 @@ from enum import StrEnum
 from pathlib import Path
 
 from pokemon_codesign_env.showdown import get_format_rules
+from pokemon_codesign_env.team_levels import LEVEL_MEAN, LEVEL_STD
+
 
 @dataclass
 class PokemonParameters:
@@ -19,7 +21,7 @@ class PokemonParameters:
     tera_type: str | None
 
     # With Defaults
-    level: int = 100
+    level: int = LEVEL_MEAN
     evs: dict[str, int] = field(default_factory=lambda: {"hp": 0, "atk": 0, "def": 0, "spa": 0, "spd": 0, "spe": 0})
     ivs: dict[str, int] = field(default_factory=lambda: {"hp": 31, "atk": 31, "def": 31, "spa": 31, "spd": 31, "spe": 31})
 
@@ -146,8 +148,8 @@ class TeamSearchConfig:
     ev_per_stat_cap: int | None = None
     iv_max: int | None = None
     iv_budget: int | None = None
-    level_mean: int | None = None
-    level_std: float = 0.0
+    level_mean: int = LEVEL_MEAN
+    level_std: float = LEVEL_STD
 
     # What is being optimized?
     species: SelectionMode = SelectionMode.RANDOM
@@ -198,9 +200,6 @@ class TeamSearchConfig:
             object.__setattr__(self, "iv_max", self.format.iv_max)
         if self.iv_budget is None:
             object.__setattr__(self, "iv_budget", 6 * self.iv_max)
-        if self.level_mean is None:
-            object.__setattr__(self, "level_mean", self.format.default_level)
-
         if not self.format.min_team_size <= self.team_size <= self.format.max_team_size:
             raise ValueError(f"team_size must be {self.format.min_team_size}-{self.format.max_team_size} for {self.format.format_name}, got {self.team_size}")
         if not 0 <= self.ev_per_stat_cap <= self.format.ev_per_stat_cap:

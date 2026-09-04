@@ -18,8 +18,8 @@ from pokemon_codesign_env.configs import (
 from pokemon_codesign_env.team_designer import TeamDesigner
 
 STATS = ("hp", "atk", "def", "spa", "spd", "spe")
-DEFAULT_LEVEL_MEAN = 70
-DEFAULT_LEVEL_STD = 10.0
+DEFAULT_LEVEL_MEAN = 50
+DEFAULT_LEVEL_STD = 0.0
 TEAM_DESIGN_SCHEMA_VERSION = 1
 
 

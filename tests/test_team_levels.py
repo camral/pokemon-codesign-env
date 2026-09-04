@@ -18,22 +18,17 @@ def levels(team: str) -> list[int | None]:
     return [pokemon.level for pokemon in Teambuilder.parse_packed_team(team)]
 
 
-def test_resample_packed_team_levels_is_seeded_and_clipped() -> None:
+def test_resample_packed_team_levels_sets_level_fifty() -> None:
     actual = resample_packed_team_levels(
-        packed_team(), np.random.default_rng(3), minimum=65, maximum=75
+        packed_team(), np.random.default_rng(3), minimum=1, maximum=100
     )
-    expected_rng = np.random.default_rng(3)
-    expected = [int(np.clip(round(float(expected_rng.normal(70, 10))), 65, 75)) for _ in range(2)]
 
-    assert levels(actual) == expected
+    assert levels(actual) == [50, 50]
 
 
-def test_random_team_pool_resamples_levels_on_each_yield() -> None:
+def test_random_team_pool_sets_level_fifty_on_each_yield() -> None:
     builder = RandomTeamPool((packed_team(),)).builder(seed=9)
-    expected_rng = np.random.default_rng(9)
 
     first = levels(builder.yield_team())
     second = levels(builder.yield_team())
-    expected = [int(np.clip(round(float(expected_rng.normal(70, 10))), 1, 100)) for _ in range(4)]
-
-    assert first + second == expected
+    assert first + second == [50, 50, 50, 50]

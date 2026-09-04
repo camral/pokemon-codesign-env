@@ -112,8 +112,8 @@ def main():
         "team_design": adapter.schema(),
         "observation": encoder.get_schema(),
         "level_generated": False,
-        "level_mean": 70,
-        "level_std": 10,
+        "level_mean": 50,
+        "level_std": 0,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     writer.write(args.output, schema=schema)

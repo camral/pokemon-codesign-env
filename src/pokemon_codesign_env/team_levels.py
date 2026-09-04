@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 from poke_env.teambuilder import Teambuilder
 
-LEVEL_MEAN = 70
-LEVEL_STD = 10.0
+LEVEL_MEAN = 50
+LEVEL_STD = 0.0
 
 
 def sample_level(

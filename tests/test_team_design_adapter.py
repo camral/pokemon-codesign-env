@@ -24,8 +24,8 @@ def test_all_supported_attributes_are_optimized_but_level_is_not() -> None:
     adapter = make_adapter()
     config = adapter.search_config
 
-    assert config.level_mean == DEFAULT_LEVEL_MEAN == 70
-    assert config.level_std == DEFAULT_LEVEL_STD == 10.0
+    assert config.level_mean == DEFAULT_LEVEL_MEAN == 50
+    assert config.level_std == DEFAULT_LEVEL_STD == 0.0
     assert set(config.get_optimizable_attributes()) == {
         "species",
         "evs",

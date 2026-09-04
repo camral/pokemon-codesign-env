@@ -12,7 +12,7 @@ Completed foundation:
 
 - All-attribute `TeamDesignVectorAdapter`, derived from `TeamDesigner`, with deterministic conditional decoding, encoding, schema versioning, stable serialization, and candidate IDs.
 - Shared batch candidate compilation through `BatchedTeamDesigner` followed by Showdown batch validation.
-- Learner and random-opponent level sampling fixed at `Normal(70, 10)` and clipped to format bounds; level is absent from optimizer schemas.
+- Learner and random-opponent levels fixed at 50; level is absent from optimizer schemas.
 - PPO + NGOpt parameterization now exposes all supported attributes and writes `team_design_schema.json`.
 - PPO + NGOpt candidate fitness now uses an equal number of complete deterministic battles under a fixed controller snapshot; rollout sums are telemetry only.
 - FastTD3 phase-projection primitives cover environment actions, replay extraction from `infos["executed_actions"]`, and differentiable actor/target-policy projection.
@@ -62,8 +62,8 @@ Level is not optimized.
 Both agent teams and random opponent teams use:
 
 ```python
-level_mean = 70
-level_std = 10
+level_mean = 50
+level_std = 0
 ```
 
 - Sample levels from this distribution independently when building teams.
@@ -91,7 +91,7 @@ The same team is duplicated across environments only for repeated evaluation of 
 Add a shared constructor for an all-attributes `TeamSearchConfig`.
 
 - Set every supported attribute mode above to `OPTIMIZED`.
-- Keep `level_mean=70` and `level_std=10`.
+- Keep `level_mean=50` and `level_std=0`.
 - Respect format generation, type restrictions, bans, team size, move count, EV limits, IV limits, and Tera support.
 - Attributes unavailable in a format are inactive and absent from the optimizer adapter rather than meaningless search dimensions.
 
@@ -464,7 +464,7 @@ Level may be present as observed rollout context but is never a generated embodi
 ### Dataset generation
 
 1. Sample legal complete teams through `TeamDesigner`.
-2. Sample both sides' levels from `Normal(70, 10)`.
+2. Set both sides' levels to 50.
 3. Run an expert or sufficiently trained cross-embodiment controller.
 4. Record team parameters, observations, masks, executed actions, rewards, opponent/task descriptors, and episode boundaries.
 5. Write training and held-out Zarr datasets.
@@ -501,7 +501,7 @@ Level may be present as observed rollout context but is never a generated embodi
 - EV/IV cap and budget preservation.
 - Unsupported-format attributes remain inactive.
 - Level is absent from optimizer schemas.
-- Sampled levels use mean 70 and standard deviation 10 before clipping.
+- Every learner and opponent Pokemon is level 50.
 - Fuzzed candidates compile and pass Showdown validation or are rejected deterministically.
 
 ### Environment tests
@@ -528,7 +528,7 @@ For every method:
 ## Implementation order
 
 1. Shared all-attribute search configuration and optimizer adapter.
-2. Fixed `Normal(70, 10)` level handling for agent and random opponent builders.
+2. Fixed level-50 handling for agent and random opponent builders.
 3. Shared candidate compilation, validation, evaluation, metrics, and artifacts.
 4. PPO + NGOpt.
 5. CMA-ES.

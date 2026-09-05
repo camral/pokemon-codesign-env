@@ -122,8 +122,10 @@ def make(
 
     :param is_eval_env: create an evaluation environment, which does not allow embodiment changes
         during evaluation.
-    :param max_action_space_size: bound the action space. A format needing more raises; a smaller
-        natural action space is padded up to it, with the padded actions masked as illegal.
+    :param max_action_space_size: bound the action space. Part of the codesign API for
+        environments whose action space depends on the embodiment, which Pokemon's does not: a
+        format needing more actions raises, and one needing fewer is padded up to the bound with
+        the padded actions masked illegal, so a policy can span formats of different generations.
     :param base_port: launch on this port instead of one claimed from the operating system.
     """
     if "server_configuration" in env_kwargs:

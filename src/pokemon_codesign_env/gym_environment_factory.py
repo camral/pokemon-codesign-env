@@ -90,8 +90,10 @@ class PokEnv(gymnasium.Env):
         self.observation_encoder = HumanVisibleBattleEncoder.from_showdown(format_config, observation_config=self.observation_config)
         self.env = self.environment_class(team=self.team_designer,observation_encoder=self.observation_encoder,showdown_path=showdown_path,**env_kwargs)
 
-        # Bound and pad the action space. Its natural size is fixed by the generation rather than
-        # by the team, so this only ever pads when one policy has to span several formats.
+        # Bound and pad the action space. max_action_space_size exists in the codesign API for
+        # environments where designing a different body changes how many actions there are. This
+        # one's size comes from the generation and never from the team, which always has six switch
+        # slots, so padding here only serves a policy spanning formats of different generations.
         self.natural_action_space_size = SinglesEnv.get_action_space_size(format_config.generation)
         if max_action_space_size is None:
             max_action_space_size = self.natural_action_space_size
@@ -280,8 +282,15 @@ class PokEnv(gymnasium.Env):
         if action is None:
             raise ValueError("step requires an action")
 
+        # Nothing else checks the action: this environment is deliberately not wrapped in
+        # gymnasium's PassiveEnvChecker, which would otherwise reject the extended signatures.
         action = int(action)
+        if not self.action_space.contains(action):
+            raise ValueError(f"action {action} is outside {self.action_space}")
         if action >= self.natural_action_space_size:
+            # Only reachable when max_action_space_size padded the space beyond what this format
+            # uses. Those actions are the later generations' mechanics and are masked illegal in
+            # every observation, so choosing one means the mask was ignored.
             raise ValueError(
                 f"action {action} lies in the padded part of the action space, which is masked "
                 f"illegal in every observation; {self.format_config.format_name} uses actions "

@@ -15,7 +15,9 @@ from contextlib import ExitStack
 from math import ceil
 from pathlib import Path
 
-from stable_baselines3.common.vec_env import VecEnvWrapper, VecMonitor
+import numpy as np
+from gymnasium.vector import VectorWrapper
+from gymnasium.wrappers.vector import RecordEpisodeStatistics
 
 from pokemon_codesign_env.configs import FormatConfig, ObservationConfig, TeamSearchConfig
 from pokemon_codesign_env.gym_environment_factory import PokEnv
@@ -148,23 +150,78 @@ def make(
     return env
 
 
-class ServerOwningVecEnv(VecEnvWrapper):
+class ServerOwningVecEnv(VectorWrapper):
     """A vector environment that shuts down the Showdown servers it was launched with."""
 
-    def __init__(self, venv, server_context: ExitStack, cluster: ShowdownClusterConfig):
-        super().__init__(venv)
+    def __init__(self, env, server_context: ExitStack, cluster: ShowdownClusterConfig):
+        super().__init__(env)
         self.server_context = server_context
         self.cluster = cluster
+        self.embodiment_rejected = np.zeros(self.num_envs, dtype=bool)
 
-    def reset(self):
-        return self.venv.reset()
+    def _embodiments_for_each_environment(self, embodiment) -> list:
+        """Spread one embodiment argument over the environments.
 
-    def step_wait(self):
-        return self.venv.step_wait()
+        A `(num_envs, embodiment_dim)` array of `flat_space` points gives each environment its own
+        design, and so does a sequence of parameter dictionaries. A single dictionary or a single
+        flat point is given to every environment.
+        """
+        if isinstance(embodiment, dict):
+            return [embodiment] * self.num_envs
+        if isinstance(embodiment, np.ndarray) and embodiment.ndim == 1:
+            return [embodiment] * self.num_envs
+        embodiments = list(embodiment)
+        if len(embodiments) != self.num_envs:
+            raise ValueError(f"Expected one embodiment per environment, got {len(embodiments)} for {self.num_envs}")
+        return embodiments
 
-    def close(self) -> None:
+    def set_embodiment(self, embodiment) -> None:
+        """Install the embodiments immediately, raising if one cannot be designed with.
+
+        `reset` is the forgiving path: it reports a rejected design instead of raising. This is
+        the strict one, for a caller that wants to know at once.
+        """
+        for index, values in enumerate(self._embodiments_for_each_environment(embodiment)):
+            self.env.env_method("set_embodiment", values, indices=index)
+
+    def reset(self, *, seed=None, options=None, embodiment=None):
+        """Reset every environment, optionally with a new embodiment for each.
+
+        Each environment applies its own design during its own reset rather than having one
+        installed beforehand, which is what lets a design that cannot be battled with come back as
+        `embodiment_rejected` in the returned infos instead of raising inside a worker and failing
+        the whole batch.
+
+        Omitting the embodiment keeps whatever each environment already has, which is what the
+        automatic reset after a finished episode relies on.
+        """
+        if embodiment is not None:
+            if options is not None:
+                raise ValueError("pass the design as embodiment or inside options, not both")
+            options = [{"embodiment": values} for values in self._embodiments_for_each_environment(embodiment)]
+        observations, infos = self.env.reset(seed=seed, options=options)
+        rejected = infos.get("embodiment_rejected")
+        self.embodiment_rejected = np.zeros(self.num_envs, dtype=bool) if rejected is None else np.asarray(rejected, dtype=bool)
+        return observations, infos
+
+    def step(self, actions):
+        """Step every environment, refusing to battle while any design was rejected.
+
+        An environment whose design was rejected never started a battle, so stepping it would
+        simulate nothing. Reporting that here names the environments responsible, rather than
+        letting it surface as a failure inside a worker.
+        """
+        if self.embodiment_rejected.any():
+            rejected = np.flatnonzero(self.embodiment_rejected).tolist()
+            raise RuntimeError(
+                f"environments {rejected} were given an embodiment that was rejected, so they have "
+                f"no battle to step; reset them with designs this environment accepts"
+            )
+        return self.env.step(actions)
+
+    def close(self, **kwargs) -> None:
         try:
-            self.venv.close()
+            self.env.close(**kwargs)
         finally:
             if self.server_context is not None:
                 server_context, self.server_context = self.server_context, None
@@ -232,7 +289,7 @@ def make_vec(
             step_timeout=step_timeout, step_timeout_reward=step_timeout_reward,
         )
         if monitor:
-            vector_env = VecMonitor(vector_env)
+            vector_env = RecordEpisodeStatistics(vector_env)
     except BaseException:
         stack.close()
         raise

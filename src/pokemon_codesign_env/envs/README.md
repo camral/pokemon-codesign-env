@@ -5,8 +5,8 @@ These are the reusable baseline environments for `pokemon-codesign-env`. Each co
 | Environment | Opponent policy | Battle format | Random opponent-team source |
 | --- | --- | --- | --- |
 | `RandomPlayerEnv` | `SwitchWeightedRandomPlayer` (20% switch probability when moves are available) | `gen4customgame` | `gen4randombattle` |
-| `MaxBasePowerPlayerEnv` | `MaxBasePowerPlayer` | `gen6ou` | `gen6battlefactory` |
-| `SimpleHeuristicsPlayerEnv` | `SimpleHeuristicsPlayer` | `gen9monotype` | `gen9monotyperandombattle` |
+| `MaxBasePowerPlayerEnv` | `MaxBasePowerPlayer` | `gen6customgame` | `gen6randombattle` |
+| `SimpleHeuristicsPlayerEnv` | `SimpleHeuristicsPlayer` | `gen9customgame` | `gen9randombattle` |
 
 The co-design agent supplies its designed team through `team`. Unless `opponent_team` is supplied, Showdown generates a fresh random opponent team before every battle and validates it against the battle format.
 
@@ -43,8 +43,8 @@ The class attributes define each baseline's format:
 
 ```python
 class MaxBasePowerPlayerEnv(BaselineOpponentEnv):
-    BATTLE_FORMAT = "gen6ou"
-    OPPONENT_TEAM_FORMAT = "gen6battlefactory"
+    BATTLE_FORMAT = "gen6customgame"
+    OPPONENT_TEAM_FORMAT = "gen6randombattle"
     OPPONENT_CLASS = MaxBasePowerPlayer
 ```
 

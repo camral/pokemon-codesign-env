@@ -5,27 +5,42 @@ import traceback
 import warnings
 from concurrent.futures import ThreadPoolExecutor
 from multiprocessing.connection import wait
+from collections.abc import Iterable
 from typing import Any, Callable, Sequence
 
 import gymnasium as gym
 import numpy as np
-from stable_baselines3.common.env_util import is_wrapped
-from stable_baselines3.common.vec_env import VecEnv
-from stable_baselines3.common.vec_env.base_vec_env import CloudpickleWrapper, VecEnvIndices, VecEnvObs, VecEnvStepReturn
-from stable_baselines3.common.vec_env.patch_gym import _patch_env
-from stable_baselines3.common.vec_env.subproc_vec_env import _stack_obs
+from gymnasium.vector import AutoresetMode, VectorEnv
+from gymnasium.vector.utils import CloudpickleWrapper, batch_space, concatenate, create_empty_array
+
+# One environment, several of them, or all of them when None.
+EnvIndices = int | Iterable[int] | None
+
+
+def _is_wrapped(env: gym.Env, wrapper_class: type[gym.Wrapper]) -> bool:
+    """Whether a wrapper of this class appears anywhere in an environment's chain."""
+    while isinstance(env, gym.Wrapper):
+        if isinstance(env, wrapper_class):
+            return True
+        env = env.env
+    return False
+
+
+def _stack_observations(observations, single_space: gym.Space):
+    """Batch one observation per environment into the vector observation."""
+    return concatenate(single_space, observations, create_empty_array(single_space, len(observations)))
 
 
 def _step_environment(arguments):
     env, action, reset_retries = arguments
     observation, reward, terminated, truncated, info = env.step(action)
-    done = terminated or truncated
-    info["TimeLimit.truncated"] = truncated and not terminated
     reset_info = {}
-    if done:
-        info["terminal_observation"] = observation
+    if terminated or truncated:
+        # Same-step autoreset: the observation that ended the episode travels in the info under
+        # the names Gymnasium uses, and the observation returned is already the next episode's.
+        info = {**info, "final_obs": observation, "final_info": info}
         observation, reset_info = _reset_environment((env, None, {}, reset_retries))
-    return observation, reward, done, info, reset_info
+    return observation, reward, terminated, truncated, info, reset_info
 
 
 def _reset_environment(arguments):
@@ -41,7 +56,7 @@ def _reset_environment(arguments):
 
 def _sharded_worker(remote, parent_remote, env_fn_wrappers, reset_retries: int) -> None:
     parent_remote.close()
-    envs = [_patch_env(wrapper.var()) for wrapper in env_fn_wrappers]
+    envs = [wrapper() for wrapper in env_fn_wrappers]
     executor = ThreadPoolExecutor(max_workers=len(envs), thread_name_prefix="battle")
 
     def respond(value) -> None:
@@ -80,7 +95,7 @@ def _sharded_worker(remote, parent_remote, env_fn_wrappers, reset_retries: int) 
                     respond([envs[index].get_wrapper_attr(name)(*arguments, **keywords) for index in indices])
                 elif command == "is_wrapped":
                     wrapper_class, indices = data
-                    respond([is_wrapped(envs[index], wrapper_class) for index in indices])
+                    respond([_is_wrapped(envs[index], wrapper_class) for index in indices])
                 elif command == "render":
                     respond([env.render() for env in envs])
                 else:
@@ -94,8 +109,13 @@ def _sharded_worker(remote, parent_remote, env_fn_wrappers, reset_retries: int) 
         remote.close()
 
 
-class ShardedVecEnv(VecEnv):
-    """Run many I/O-bound environments in a small number of batched processes."""
+class ShardedVecEnv(VectorEnv):
+    """Run many I/O-bound environments in a small number of batched processes.
+
+    Each worker process owns a batch of environments and steps them on threads, because a Pokemon
+    Showdown battle spends its time waiting on a socket rather than on the CPU. That keeps a
+    thousand environments to a few dozen processes instead of a thousand.
+    """
 
     def __init__(
         self, env_fns: list[Callable[[], gym.Env]], envs_per_worker: int = 32, reset_retries: int = 3, start_method: str = "spawn",
@@ -127,8 +147,16 @@ class ShardedVecEnv(VecEnv):
         for worker_index in range(len(self.env_fn_batches)):
             self._start_worker(worker_index)
         self.remotes[0].send(("get_spaces", None))
-        observation_space, action_space = self._receive(self.remotes[0])
-        super().__init__(len(env_fns), observation_space, action_space)
+        single_observation_space, single_action_space = self._receive(self.remotes[0])
+        self.num_envs = len(env_fns)
+        self.single_observation_space = single_observation_space
+        self.single_action_space = single_action_space
+        self.observation_space = batch_space(single_observation_space, self.num_envs)
+        self.action_space = batch_space(single_action_space, self.num_envs)
+        # A finished environment is reset inside the same step that ended it, which is what
+        # Gymnasium calls same-step autoreset.
+        self.metadata = {**VectorEnv.metadata, "autoreset_mode": AutoresetMode.SAME_STEP}
+        self.reset_infos = [{} for _ in range(self.num_envs)]
 
     def _start_worker(self, worker_index: int) -> None:
         remote, work_remote = self.context.Pipe()
@@ -174,11 +202,12 @@ class ShardedVecEnv(VecEnv):
             raise RuntimeError(f"Could not restart sharded environment worker {worker_index}")
         recovered = []
         for environment_index, (observation, reset_info) in zip(environment_indices, reset_results, strict=True):
+            # Losing a worker ends its episodes without them finishing, which is a truncation.
             info = {
-                "TimeLimit.truncated": True, "terminal_observation": observation, "sharded_worker_restarted": True,
+                "final_obs": observation, "final_info": {}, "sharded_worker_restarted": True,
                 "sharded_worker_index": worker_index, "environment_index": environment_index, "restart_reason": reason,
             }
-            recovered.append((observation, self.step_timeout_reward, True, info, reset_info))
+            recovered.append((observation, self.step_timeout_reward, False, True, info, reset_info))
         return recovered
 
     def _receive_step_workers(self) -> list[list]:
@@ -234,25 +263,71 @@ class ShardedVecEnv(VecEnv):
                 self.step_send_failures[worker_index] = f"could not submit step: {error}"
         self.waiting = True
 
-    def step_wait(self) -> VecEnvStepReturn:
+    def step_wait(self):
         try:
             results = [result for worker_results in self._receive_step_workers() for result in worker_results]
         finally:
             self.waiting = False
-        observations, rewards, dones, infos, self.reset_infos = zip(*results, strict=True)
-        return _stack_obs(observations, self.observation_space), np.stack(rewards), np.stack(dones), infos
+        observations, rewards, terminations, truncations, infos, self.reset_infos = zip(*results, strict=True)
+        return (
+            _stack_observations(observations, self.single_observation_space),
+            np.asarray(rewards, dtype=np.float64),
+            np.asarray(terminations, dtype=bool),
+            np.asarray(truncations, dtype=bool),
+            self._batch_infos(infos),
+        )
 
-    def reset(self) -> VecEnvObs:
-        arguments = self._split(list(zip(self._seeds, self._options, strict=True)))
+    def step(self, actions):
+        self.step_async(actions)
+        return self.step_wait()
+
+    def _batch_infos(self, infos) -> dict[str, Any]:
+        """Gather one info per environment into Gymnasium's vectorized info dictionary."""
+        vector_infos: dict[str, Any] = {}
+        for environment_index, info in enumerate(infos):
+            vector_infos = self._add_info(vector_infos, info, environment_index)
+        return vector_infos
+
+    def reset(self, *, seed=None, options=None):
+        """Reset every environment.
+
+        `options` may be one dictionary for all of them, or one per environment, which is how a
+        caller gives each environment something different to reset with.
+        """
+        if seed is None or isinstance(seed, int):
+            seeds = [seed] * self.num_envs if seed is None else [seed + index for index in range(self.num_envs)]
+        else:
+            seeds = list(seed)
+        if options is None or isinstance(options, dict):
+            per_environment_options = [options] * self.num_envs
+        else:
+            per_environment_options = list(options)
+        if len(seeds) != self.num_envs or len(per_environment_options) != self.num_envs:
+            raise ValueError(f"Expected one seed and one option dictionary per environment, got {len(seeds)} and {len(per_environment_options)}")
+
+        arguments = self._split(list(zip(seeds, per_environment_options, strict=True)))
         for remote, batch in zip(self.remotes, arguments, strict=True):
             remote.send(("reset", batch))
-        results = [result for remote in self.remotes for result in self._receive(remote)]
-        observations, self.reset_infos = zip(*results, strict=True)
-        self._reset_seeds()
-        self._reset_options()
-        return _stack_obs(observations, self.observation_space)
 
-    def close(self) -> None:
+        # Every worker has been sent a command, so every reply must be read even once one of them
+        # has failed. A reply left in the pipe desynchronises that worker for good: the next
+        # command reads this reply instead of its own, and a transient failure that the retries
+        # exist to absorb would take the whole vector environment down with it.
+        results, failures = [], []
+        for remote in self.remotes:
+            try:
+                results.extend(self._receive(remote))
+            except Exception as error:
+                failures.append(error)
+        if failures:
+            if len(failures) > 1:
+                raise RuntimeError(f"{len(failures)} sharded environment workers failed on reset") from failures[0]
+            raise failures[0]
+
+        observations, self.reset_infos = zip(*results, strict=True)
+        return _stack_observations(observations, self.single_observation_space), self._batch_infos(self.reset_infos)
+
+    def close(self, **kwargs) -> None:
         if self.closed:
             return
         if self.waiting:
@@ -278,7 +353,14 @@ class ShardedVecEnv(VecEnv):
                 process.join()
         self.closed = True
 
-    def _locations(self, indices: VecEnvIndices = None) -> list[tuple[int, int, int]]:
+    def _get_indices(self, indices: EnvIndices) -> Iterable[int]:
+        if indices is None:
+            return range(self.num_envs)
+        if isinstance(indices, int):
+            return [indices]
+        return indices
+
+    def _locations(self, indices: EnvIndices = None) -> list[tuple[int, int, int]]:
         selected = list(self._get_indices(indices))
         locations = []
         for output_index, environment_index in enumerate(selected):
@@ -287,14 +369,14 @@ class ShardedVecEnv(VecEnv):
             locations.append((output_index, worker_index, environment_index - worker_start))
         return locations
 
-    def _group_locations(self, indices: VecEnvIndices = None) -> tuple[list[tuple[int, int, int]], dict[int, list[int]]]:
+    def _group_locations(self, indices: EnvIndices = None) -> tuple[list[tuple[int, int, int]], dict[int, list[int]]]:
         locations = self._locations(indices)
         grouped = {}
         for _, worker_index, local_index in locations:
             grouped.setdefault(worker_index, []).append(local_index)
         return locations, grouped
 
-    def get_attr(self, attr_name: str, indices: VecEnvIndices = None) -> list[Any]:
+    def get_attr(self, attr_name: str, indices: EnvIndices = None) -> list[Any]:
         locations, grouped = self._group_locations(indices)
         for worker_index, local_indices in grouped.items():
             self.remotes[worker_index].send(("get_attr", (attr_name, local_indices)))
@@ -306,21 +388,21 @@ class ShardedVecEnv(VecEnv):
             remote.send(("has_attr", attr_name))
         return all(self._receive(remote) for remote in self.remotes)
 
-    def set_attr(self, attr_name: str, value: Any, indices: VecEnvIndices = None) -> None:
+    def set_attr(self, attr_name: str, value: Any, indices: EnvIndices = None) -> None:
         _, grouped = self._group_locations(indices)
         for worker_index, local_indices in grouped.items():
             self.remotes[worker_index].send(("set_attr", (attr_name, value, local_indices)))
         for worker_index in grouped:
             self._receive(self.remotes[worker_index])
 
-    def env_method(self, method_name: str, *method_args, indices: VecEnvIndices = None, **method_kwargs) -> list[Any]:
+    def env_method(self, method_name: str, *method_args, indices: EnvIndices = None, **method_kwargs) -> list[Any]:
         locations, grouped = self._group_locations(indices)
         for worker_index, local_indices in grouped.items():
             self.remotes[worker_index].send(("env_method", (method_name, method_args, method_kwargs, local_indices)))
         responses = {worker_index: iter(self._receive(self.remotes[worker_index])) for worker_index in grouped}
         return [next(responses[worker_index]) for _, worker_index, _ in locations]
 
-    def env_is_wrapped(self, wrapper_class: type[gym.Wrapper], indices: VecEnvIndices = None) -> list[bool]:
+    def env_is_wrapped(self, wrapper_class: type[gym.Wrapper], indices: EnvIndices = None) -> list[bool]:
         locations, grouped = self._group_locations(indices)
         for worker_index, local_indices in grouped.items():
             self.remotes[worker_index].send(("is_wrapped", (wrapper_class, local_indices)))

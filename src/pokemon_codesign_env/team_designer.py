@@ -10,10 +10,13 @@ class TeamDesigner(Teambuilder):
     """
     This class expresses the team design process as a search problem.
     """
-    def __init__(self, search_config: TeamSearchConfig, validate_teams: bool = True):
+    def __init__(self, search_config: TeamSearchConfig, validate_teams: bool = True, max_attempts: int = 1):
         super().__init__()
+        if max_attempts < 1:
+            raise ValueError(f"max_attempts must be at least one, got {max_attempts}")
         self.search_config = search_config
         self.validate_teams = validate_teams
+        self.max_attempts = max_attempts
         self.team: list[PokemonParameters] = []
         self.optimizable_attributes = {}
         self.optimizable_parameter_values = {}
@@ -295,6 +298,25 @@ class TeamDesigner(Teambuilder):
         return self.get_parameter_value(pokemon, param, species)
 
     def yield_team(self) -> str:
+        """Compile a team, retrying the randomly resolved attributes Showdown rejects.
+
+        Whether a set of moves is legal together cannot be read off a per-move legal pool: Showdown
+        rejects combinations such as Blastoise's Block and Flail that are each legal alone. Those
+        randomly resolved attributes are simply drawn again, which is why max_attempts exists.
+        """
+        if self.max_attempts == 1:
+            # Report Showdown's own reason rather than burying it in a retry summary.
+            return self._yield_team_once()
+
+        last_error = None
+        for _ in range(self.max_attempts):
+            try:
+                return self._yield_team_once()
+            except ValueError as error:
+                last_error = error
+        raise ValueError(f"Could not generate a valid team after {self.max_attempts} attempts: {last_error}") from last_error
+
+    def _yield_team_once(self) -> str:
         """
         This function is what is called before each battle starts to define the team that is used.
         Therefore, this is the "generate" or "compile" function.

@@ -72,11 +72,22 @@ def _get_parameter_catalog(
         const validator = TeamValidator.get(format.id);
         const generations = filters.generations;
         const types = filters.types.map(type => type.toLowerCase());
-        const restrictToFormatGeneration = format.id.endsWith('pokemonleague');
+        // Tiered formats already ban future Pokemon through their rules, but a Custom Game strips
+        // those rules, so [Gen 4] Custom Game would otherwise offer Alcremie. Every format is
+        // restricted to the Pokemon of its own generation, which is also what poke-env assumes
+        // when it looks a species up in the battle generation's pokedex.
+        // A forme that only appears mid-battle, such as Swampert-Mega or Castform-Sunny, cannot be
+        // put in a team: Showdown answers "Swampert-Mega transforms in-battle with Swampert". One
+        // that requires a specific item or move, such as Arceus-Fire or Genesect-Shock, is only
+        // legal while holding it, which a team search choosing species and items independently
+        // cannot guarantee. Both are excluded so every offered species is directly usable.
         const isEligibleSpecies = species => (
             species.exists &&
             !validator.ruleTable.isBannedSpecies(species) &&
-            (!restrictToFormatGeneration || species.gen <= dex.gen) &&
+            species.gen <= dex.gen &&
+            !species.battleOnly &&
+            !species.requiredItem &&
+            !species.requiredMove &&
             (!generations.length || generations.includes(species.gen)) &&
             (!types.length || species.types.some(type => types.includes(type.toLowerCase())))
         );
@@ -102,6 +113,32 @@ def _get_parameter_catalog(
         };
         if (!validator.checkItem({ name: 'Pokemon' }, dex.items.get(''), {})) catalog.item.unshift(null);
 
+        // Some clauses ban moves from a validation handler rather than a banlist, so neither
+        // checkMove nor ruleTable.isBanned reports them: OHKO Clause rejects Fissure and Sleep
+        // Moves Clause rejects Sleep Powder only once validateSet runs. These handlers look at the
+        // move alone, so they can be evaluated once per format. Each rule is run with and without
+        // the move and only the extra problems are attributed to it, which keeps complaints about
+        // the deliberately incomplete stand-in set from banning everything.
+        const runValidatorRule = (subformat, moves) => {
+            try {
+                const problems = subformat.onValidateSet.call(validator, { moves }, format, {}, {});
+                return problems ? [].concat(problems) : [];
+            } catch (error) {
+                return null;
+            }
+        };
+        const clauseBannedMoves = new Set();
+        for (const ruleId of validator.ruleTable.keys()) {
+            const subformat = dex.formats.get(ruleId);
+            if (!subformat.exists || !subformat.onValidateSet) continue;
+            const baseline = runValidatorRule(subformat, []);
+            if (baseline === null) continue;
+            for (const move of dex.moves.all()) {
+                const problems = runValidatorRule(subformat, [move.id]);
+                if (problems && problems.length > baseline.length) clauseBannedMoves.add(move.id);
+            }
+        }
+
         for (const species of speciesPool) {
             catalog.aliases[species.id] = species.name;
             catalog.aliases[species.name.toLowerCase()] = species.name;
@@ -110,9 +147,20 @@ def _get_parameter_catalog(
             for (const learnsetData of dex.species.getFullLearnset(species.id)) {
                 for (const moveId of Object.keys(learnsetData.learnset)) moveIds.add(moveId);
             }
+            // getFullLearnset reports every move a species can ever learn, including ones that
+            // cannot legally transfer into this generation, which the team validator then rejects
+            // with "Tentacruel's move Brine can't be transferred from Gen 8 to 9". checkCanLearn
+            // applies the same transfer rules the validator does. Each move is checked against a
+            // fresh source set so they are judged independently rather than as one accumulating
+            // set, which is what a per-move legal pool means.
             catalog.moves[species.name] = Array.from(moveIds)
                 .map(moveId => dex.moves.get(moveId))
-                .filter(move => move.exists && move.gen <= dex.gen && !validator.checkMove({ name: 'Pokemon' }, move, {}))
+                .filter(move => (
+                    move.exists && move.gen <= dex.gen &&
+                    !clauseBannedMoves.has(move.id) &&
+                    !validator.checkMove({ name: 'Pokemon' }, move, {}) &&
+                    !validator.checkCanLearn(move, species, validator.allSources(species))
+                ))
                 .map(move => move.name)
                 .sort((left, right) => left.localeCompare(right));
 

@@ -29,6 +29,7 @@ from stable_baselines3.common.callbacks import BaseCallback, CallbackList
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.policies import ActorCriticPolicy
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
+from gymnasium.wrappers.vector import DictInfoToList
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecEnv, VecMonitor
 
 from pokemon_codesign_env.configs import (
@@ -472,18 +473,77 @@ def make_team(search_config, parameter_values: dict, seed: int, validate_teams: 
     return team
 
 
+class SB3VecEnvAdapter(VecEnv):
+    """Present a Gymnasium vector environment through the interface Stable-Baselines3 expects.
+
+    The benchmark speaks the Gymnasium vector API: reset returns `(observations, infos)`, step
+    returns terminations and truncations separately, and infos are one dictionary of arrays.
+    Stable-Baselines3 wants observations alone, a single `dones`, and a list of dictionaries. The
+    translation lives here rather than in the library, so the benchmark does not depend on any one
+    training framework.
+    """
+
+    def __init__(self, env):
+        self.env = DictInfoToList(env)
+        self._actions = None
+        super().__init__(env.num_envs, env.single_observation_space, env.single_action_space)
+
+    def reset(self):
+        seeds = [seed for seed in self._seeds if seed is not None]
+        observations, infos = self.env.reset(seed=seeds[0] if seeds else None)
+        self.reset_infos = list(infos)
+        self._reset_seeds()
+        self._reset_options()
+        return observations
+
+    def step_async(self, actions) -> None:
+        self._actions = actions
+
+    def step_wait(self):
+        observations, rewards, terminations, truncations, infos = self.env.step(self._actions)
+        dones = np.logical_or(terminations, truncations)
+        infos = list(infos)
+        for index, info in enumerate(infos):
+            info["TimeLimit.truncated"] = bool(truncations[index] and not terminations[index])
+            # Gymnasium reports the observation that ended an episode as final_obs under same-step
+            # autoreset; Stable-Baselines3 looks for terminal_observation.
+            if dones[index] and info.get("final_obs") is not None:
+                info["terminal_observation"] = info["final_obs"]
+        return observations, rewards, dones, infos
+
+    def close(self) -> None:
+        self.env.close()
+
+    # Gymnasium's VectorWrapper does not forward attribute access, so these reach the environments
+    # through the vector environment underneath the wrappers.
+    def get_attr(self, attr_name: str, indices=None) -> list:
+        return self.env.unwrapped.get_attr(attr_name, indices=indices)
+
+    def set_attr(self, attr_name: str, value, indices=None) -> None:
+        self.env.unwrapped.set_attr(attr_name, value, indices=indices)
+
+    def env_method(self, method_name: str, *method_args, indices=None, **method_kwargs) -> list:
+        return self.env.unwrapped.env_method(method_name, *method_args, indices=indices, **method_kwargs)
+
+    def env_is_wrapped(self, wrapper_class, indices=None) -> list[bool]:
+        return self.env.unwrapped.env_is_wrapped(wrapper_class, indices=indices)
+
+    def get_images(self):
+        return self.env.unwrapped.get_images()
+
+
 def make_vector_env(
     env_factories, vec_env: str, envs_per_worker: int = 32, reset_retries: int = 3, step_timeout: float = 60.0,
     step_timeout_reward: float = 0.0,
 ):
     """Create a monitored in-process or process-parallel SB3 vector environment."""
     if vec_env == "sharded":
-        return VecMonitor(
+        return VecMonitor(SB3VecEnvAdapter(
             ShardedVecEnv(
                 env_factories, envs_per_worker=envs_per_worker, reset_retries=reset_retries, start_method="spawn",
                 step_timeout=step_timeout, step_timeout_reward=step_timeout_reward,
             )
-        )
+        ))
     vector_class = DummyVecEnv if vec_env == "dummy" else SubprocVecEnv
     kwargs = {} if vec_env == "dummy" else {"start_method": "spawn"}
     return VecMonitor(vector_class(env_factories, **kwargs))

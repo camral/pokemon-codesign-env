@@ -73,7 +73,10 @@ class Categorical(Space):
         return (self._indices[value],)
 
     def from_index(self, indices):
-        return self.values[int(np.asarray(indices).ravel()[0]) % len(self.values)]
+        index = int(np.asarray(indices).ravel()[0])
+        if not 0 <= index < len(self.values):
+            raise ValueError(f"index {index} does not name a value of {self}")
+        return self.values[index]
 
     def __repr__(self) -> str:
         return f"Categorical({len(self.values)} values)"
@@ -112,7 +115,10 @@ class IntegerParam(Space):
         return (value - self.minimum,)
 
     def from_index(self, indices) -> int:
-        return self.minimum + int(np.asarray(indices).ravel()[0]) % self.index_nvec[0]
+        index = int(np.asarray(indices).ravel()[0])
+        if not 0 <= index < self.index_nvec[0]:
+            raise ValueError(f"index {index} is outside {self}")
+        return self.minimum + index
 
     def __repr__(self) -> str:
         return f"IntegerParam({self.minimum}, {self.maximum})"
@@ -171,15 +177,17 @@ class ChoiceSet(Space):
     def from_index(self, indices) -> list:
         chosen = []
         for raw in np.asarray(indices).ravel()[: self.max_size]:
-            value = self.values[int(raw) % len(self.values)]
+            index = int(raw)
+            if not 0 <= index < len(self.values):
+                raise ValueError(f"index {index} does not name a value of {self}")
+            value = self.values[index]
+            # to_index pads a short selection by repeating its last choice, so a repeat is the
+            # padding rather than a duplicate. TeamDesignSpace.from_index re-encodes the result to
+            # confirm the whole point really denotes this selection.
             if value not in chosen:
                 chosen.append(value)
-        # Deduplicating can drop the selection below the minimum size, so top it back up.
-        cursor = 0
-        while len(chosen) < self.min_size:
-            if self.values[cursor] not in chosen:
-                chosen.append(self.values[cursor])
-            cursor += 1
+        if len(chosen) < self.min_size:
+            raise ValueError(f"indices name {len(chosen)} distinct values, fewer than the minimum {self.min_size}")
         return chosen
 
     def __repr__(self) -> str:
@@ -246,16 +254,14 @@ class StatAllocation(Space):
 
     def from_index(self, indices) -> dict[str, int]:
         raw = np.asarray(indices).ravel()[: len(self.stats)]
-        values = [min(max(self.minimum + int(entry), self.minimum), self.max_per_stat) for entry in raw]
-        floor = self.minimum * len(values)
-        excess = sum(values) - floor
-        if sum(values) > self.budget and excess > 0:
-            # Scale the discretionary part of the allocation down onto the budget simplex.
-            scale = (self.budget - floor) / excess
-            values = [self.minimum + int((value - self.minimum) * scale) for value in values]
-        while sum(values) > self.budget:
-            largest = max(range(len(values)), key=lambda index: values[index])
-            values[largest] -= 1
+        values = []
+        for entry in raw:
+            index = int(entry)
+            if not 0 <= index < self.index_nvec[0]:
+                raise ValueError(f"index {index} is outside the per-stat range of {self}")
+            values.append(self.minimum + index)
+        if sum(values) > self.budget:
+            raise ValueError(f"allocation sums to {sum(values)}, over the budget of {self.budget}")
         return {stat: values[index] for index, stat in enumerate(self.stats)}
 
     def __repr__(self) -> str:
@@ -371,14 +377,14 @@ class TeamDesignSpace(spaces.Dict):
         return species_are_trackable(tuple(chosen) + (species,), self.generation)
 
     def _resolve_species(self, pokemon: str, preferred: int, chosen: list[str]) -> str:
-        """Return the first usable species at or after an index in the species space."""
+        """Return the species an index names, provided the team can still be built from it."""
         species_space = self.spaces[pokemon]["species"]
-        count = len(species_space.values)
-        for offset in range(count):
-            candidate = species_space.values[(preferred + offset) % count]
-            if self._species_is_usable(pokemon, candidate, chosen):
-                return candidate
-        raise ValueError(f"No species in the design space produces a usable team for {pokemon}")
+        candidate = species_space.from_index([preferred])
+        if not self.species_is_compilable(candidate):
+            raise ValueError(f"{pokemon}: {candidate} has no legal value for one of {self.required_domains}")
+        if not species_are_trackable(tuple(chosen) + (candidate,), self.generation):
+            raise ValueError(f"{pokemon}: {candidate} cannot be told apart from another Pokemon on the team")
+        return candidate
 
     def sample(self, mask=None, probability=None) -> dict:
         embodiment = {}
@@ -429,6 +435,24 @@ class TeamDesignSpace(spaces.Dict):
                     return False
         return self.team_is_trackable(x)
 
+    def _explain_dependent_illegality(self, embodiment: dict) -> None:
+        """Name the species-parameter pairing that makes an embodiment illegal, if any.
+
+        Every parameter is indexed against the union of its values, so a decoded point can pair a
+        species with a move it cannot learn. Reporting which pairing failed is far more use to an
+        embodiment designer than being told the point is not a member.
+        """
+        for pokemon in self.pokemon_keys:
+            species = embodiment[pokemon].get("species")
+            if species is None:
+                continue
+            for param in self._dependent_parameters(pokemon):
+                legal = set(self.legal_values(param, species))
+                chosen = embodiment[pokemon][param]
+                for value in (chosen if isinstance(chosen, list) else [chosen]):
+                    if value not in legal:
+                        raise ValueError(f"{pokemon}: {species} has no legal {param} {value!r}")
+
     def team_is_trackable(self, embodiment: dict) -> bool:
         """Return whether poke-env can distinguish every Pokemon in an embodiment."""
         if not self.optimizes_species:
@@ -456,26 +480,20 @@ class TeamDesignSpace(spaces.Dict):
         return np.asarray(indices, dtype=np.int64)
 
     def _to_index_for(self, pokemon: str, param: str, values: dict) -> tuple[int, ...]:
-        # Dependent parameters must be encoded against their species-restricted space, because
-        # from_index decodes them there; a union index would be remapped onto a different value.
-        union = self.spaces[pokemon][param]
-        species = values.get("species")
-        if species is not None and param in self.DEPENDENT_PARAMETERS:
-            indices = self.dependent_space(pokemon, param, species).to_index(values[param])
-        else:
-            indices = union.to_index(values[param])
-        # A species-restricted choice set can be narrower than the union, so pad to flat_space's width.
-        width = len(union.index_nvec)
-        if len(indices) < width:
-            indices = tuple(indices) + (indices[-1],) * (width - len(indices))
-        return indices
+        # Every parameter, dependent or not, is indexed against the union of its values, so an
+        # index always names the same move or ability whatever species sits beside it. Indexing
+        # the species-restricted list instead would make the same index mean a different move for
+        # every species, so changing a species would silently reinterpret its whole move set.
+        return self.spaces[pokemon][param].to_index(values[param])
 
     def from_index(self, indices) -> dict:
-        """Decode a point in `flat_space` into an embodiment that is always in this space.
+        """Decode a point of `flat_space` into the embodiment it names.
 
-        Out-of-domain points are repaired rather than rejected: species advance to the next
-        usable entry, dependent parameters are remapped into their species-legal domain, move
-        sets are deduplicated, and stat allocations are projected onto their budget.
+        `flat_space` is a box and this space is a strict subset of it, because a box cannot say
+        that EVs share a budget, that species must be distinguishable, or that a move must come
+        from the pool of the species beside it. A point that satisfies none of those names no
+        design, and raises rather than being adjusted into one: an embodiment designer has to be
+        told its proposal was rejected, not handed a different team and a score for it.
         """
         flat = np.asarray(indices, dtype=np.int64).ravel()
         expected = len(self.flat_space.nvec)
@@ -503,11 +521,19 @@ class TeamDesignSpace(spaces.Dict):
             for param in self.parameter_keys[pokemon]:
                 if param == "species":
                     continue
-                if species is not None and param in self.DEPENDENT_PARAMETERS:
-                    values[param] = self.dependent_space(pokemon, param, species).from_index(raw[pokemon][param])
-                else:
-                    values[param] = self.spaces[pokemon][param].from_index(raw[pokemon][param])
+                # Decoded from the union, so an index names the same value regardless of species.
+                # A move the species cannot learn is a rejected pairing, which contains() reports.
+                values[param] = self.spaces[pokemon][param].from_index(raw[pokemon][param])
             embodiment[pokemon] = values
+
+        # The leaves police their own domains, but only the whole embodiment shows the constraints
+        # that span parameters. Re-encoding proves the decode was faithful rather than merely
+        # plausible: a point that does not come back unchanged named no design to begin with.
+        self._explain_dependent_illegality(embodiment)
+        if not self.contains(embodiment):
+            raise ValueError("indices do not name a member of the design space")
+        if not np.array_equal(self.to_index(embodiment), flat):
+            raise ValueError("indices do not name this embodiment exactly")
         return embodiment
 
     def __repr__(self) -> str:

@@ -1,11 +1,11 @@
-# Pokemon Showdown Codesign Environment
+# Pokémon Showdown Codesign Environment
 
 <p align="center">
-  <img src="docs/figures/codesign.png" alt="Pokemon Showdown as a co-design benchmark: an embodiment designer feeding the team design space and a control policy feeding the battle MDP, both composing your side of a single Pokemon Showdown battle that returns one score to both" width="100%">
+  <img src="docs/figures/codesign.png" alt="Pokémon Showdown as a co-design benchmark: an embodiment designer feeding the team design space and a control policy feeding the battle MDP, both composing your side of a single Pokémon Showdown battle that returns one score to both" width="100%">
 </p>
 
-**Pokemon Showdown** - A turn-based Pokemon battle simulator. This is based off [Pokemon Showdown](https://github.com/smogon/pokemon-showdown) and [Poke-Env](https://github.com/hsahovic/poke-env).
-In this problem setup, the agent is tasked with designing a Pokemon team (embodiment) and learning a battle strategy (control policy) to maximize its win rate against various opponents.
+**Pokémon Showdown** - A turn-based Pokémon battle simulator. This is based off [Pokémon Showdown](https://github.com/smogon/Pokemon-showdown) and [Poke-Env](https://github.com/hsahovic/poke-env).
+In this problem setup, the agent is tasked with designing a Pokémon team (embodiment) and learning a battle strategy (control policy) to maximize its win rate against various opponents.
 
 Two searches run against each other. An **embodiment designer** searches the design space &Theta; for a
 team; a **control policy** acts in the battle MDP. Your side of a battle is assembled from both &mdash;
@@ -13,7 +13,7 @@ the team you designed, played by the policy you trained &mdash; and the battle r
 `R` that scores the pair.
 
 The benchmark fixes &Theta;, the MDP and the opponent task suite, all resolved from a bundled,
-unpatched Pokemon Showdown, so legality and turn resolution are the real game's rather than ours. It
+unpatched Pokémon Showdown, so legality and turn resolution are the real game's rather than ours. It
 does not fix the *method*: the designer and the policy are yours to bring, and the pair shipped in
 `examples/` (Nevergrad NGOpt and SB3 MaskablePPO) are reference baselines you are meant to replace.
 
@@ -23,7 +23,9 @@ it was handed, so neither can be optimised in isolation. Swapping a task-suite p
 problem without changing anything above it.
 
 The figure's source is [`docs/figures/codesign.drawio`](docs/figures/codesign.drawio); regenerate it
-with `python docs/figures/build_figure.py` and export via the draw.io CLI.
+with `python docs/figures/build_figure.py` and export via the draw.io CLI. Sprite credits and licence
+status for every asset used in the figures are listed in
+[`docs/figures/assets/CREDITS.md`](docs/figures/assets/CREDITS.md).
 
 The difficulties of the learning problems are yet to be fully explored, but the environment is designed to be flexible and allow for a wide range of co-design challenges.
 Potential environment setups:
@@ -36,26 +38,26 @@ Potential environment setups:
 
 ## Installation
 
-Pokemon Showdown is included as a Git submodule. After cloning this repository,
+Pokémon Showdown is included as a Git submodule. After cloning this repository,
 initialize the submodule and install its Node.js dependencies:
 
 ```bash
 git submodule update --init --recursive
-npm --prefix pokemon-showdown ci
+npm --prefix Pokemon-showdown ci
 ```
 
-The bundled Pokemon Showdown revision requires Node.js 22 or newer. Install this Python project and
+The bundled Pokémon Showdown revision requires Node.js 22 or newer. Install this Python project and
 its reinforcement-learning dependencies from the repository root:
 
 ```bash
 pip install -e '.[rl]'
 ```
 
-Finally, install and build the packaged Pokemon League formats in the bundled
+Finally, install and build the packaged Pokémon League formats in the bundled
 Showdown server:
 
 ```bash
-pokemon-codesign-install-showdown pokemon-showdown
+Pokemon-codesign-install-showdown Pokemon-showdown
 ```
 
 This uses Showdown's supported `config/custom-formats.ts` extension point and
@@ -63,20 +65,40 @@ builds the server. It does not patch the Showdown simulator. If the server
 already has custom formats, the command preserves them and explains the import
 that must be added manually.
 
+## The codesign Gymnasium API
+
+A codesign environment is a Gymnasium environment with a third space alongside the
+observation and action spaces: the embodiment design space &Theta;. Choose a point in it
+when you reset, and the environment launches and owns the Showdown server it needs.
+
+```python
+import Pokemon_codesign_env as pce
+
+env = pce.make("random")
+observation, info = env.reset(seed=0, embodiment=env.embodiment_space.sample())
+env.close()
+```
+
+[`docs/codesign_gym_api.md`](docs/codesign_gym_api.md) documents the whole extension: the
+design space and how designs are rejected rather than repaired, the flat `MultiDiscrete`
+representation and the batched `validate_embodiments` screen, passing one design per
+environment to a vector environment, and how to convert &Theta; between coordinate systems
+if your designer wants different ones.
+
 ## Minimal SB3 + NGOpt experiment
 
 The example in `examples/train_sb3_ngopt.py` uses NGOpt to choose the species
-and nature of all six Pokemon. Every vector environment receives an independent
+and nature of all six Pokémon. Every vector environment receives an independent
 NGOpt team, and the complete population is scored and replaced after every PPO
 rollout. One masked PPO controller learns continuously across these embodiment
 populations using `RandomPlayerEnv` by default. Each baseline environment gives
 the opponent a newly generated random team for every battle.
 
-Start the bundled Pokemon Showdown server in another terminal:
+Start the bundled Pokémon Showdown server in another terminal:
 
 ```bash
-cd pokemon-showdown
-node pokemon-showdown start --no-security
+cd Pokemon-showdown
+node Pokemon-showdown start --no-security
 ```
 
 Then run the small experiment:
@@ -97,7 +119,7 @@ Select any PyTorch device with `--device`, including a specific GPU:
 
 ```bash
 python examples/train_sb3_ngopt.py --device cuda
-python examples/train_pokemon_league_sb3_ngopt.py --device cuda:6
+python examples/train_Pokemon_league_sb3_ngopt.py --device cuda:6
 python examples/train_self_play_sb3_ngopt.py --device mps
 ```
 
@@ -143,7 +165,7 @@ python examples/train_sb3_ngopt.py \
   --progress \
   --gpu-log-interval 8192 \
   --telemetry-log-interval 1024 \
-  --wandb-project pokemon-codesign \
+  --wandb-project Pokémon-codesign \
   --wandb-entity YOUR_ENTITY \
   --wandb-name gpu-1024-envs \
   --wandb-mode online \
@@ -186,9 +208,9 @@ python -c 'import torch; print(torch.cuda.is_available(), torch.cuda.device_coun
 Enable W&B evaluation logging by supplying a project:
 
 ```bash
-python examples/train_pokemon_league_sb3_ngopt.py \
+python examples/train_Pokemon_league_sb3_ngopt.py \
   --generation 4 \
-  --wandb-project pokemon-codesign \
+  --wandb-project Pokemon-codesign \
   --wandb-entity YOUR_ENTITY \
   --wandb-group gen4-league \
   --launch-server
@@ -201,7 +223,7 @@ environment readiness, startup time, vector steps, buffer fill, completed
 episodes, recent FPS, average FPS, and transitions per second. Replay recording
 remains evaluation-only. After training, the final NGOpt recommendation is
 evaluated by one environment and one representative battle is displayed in W&B
-as an HTML Pokemon Showdown replay and uploaded in a downloadable
+as an HTML Pokémon Showdown replay and uploaded in a downloadable
 `evaluation-replays` artifact.
 Use `--wandb-mode offline` to save locally for later `wandb sync`, or
 `--wandb-mode disabled` to exercise the same configuration without logging.
@@ -256,13 +278,13 @@ with this encoder and must be retrained before using `--watch`.
 The final recommended team and jointly trained PPO controller are written to
 `runs/minimal_codesign/`.
 
-## Pokemon League experiment
+## Pokémon League experiment
 
-`examples/train_pokemon_league_sb3_ngopt.py` applies the same rollout-population
+`examples/train_Pokemon_league_sb3_ngopt.py` applies the same rollout-population
 SB3 and NGOpt setup to a complete five-battle League episode:
 
 ```bash
-python examples/train_pokemon_league_sb3_ngopt.py \
+python examples/train_Pokemon_league_sb3_ngopt.py \
   --generation 4 \
   --difficulty 0 \
   --launch-server \
@@ -270,16 +292,16 @@ python examples/train_pokemon_league_sb3_ngopt.py \
 ```
 
 Use `--random-league` instead of `--generation` to sample one League per
-episode while allowing Pokemon from every generation.
+episode while allowing Pokémon from every generation.
 
 To watch the saved controller attempt the full League, leave the Showdown
 server running, open `http://localhost:8000`, and use the same generation and
 difficulty that were used for training:
 
 ```bash
-python examples/train_pokemon_league_sb3_ngopt.py \
+python examples/train_Pokemon_league_sb3_ngopt.py \
   --generation 4 \
-  --difficulty 0 \
+  --difficulty 0 \  
   --watch \
   --turn-delay 1
 ```
@@ -287,7 +309,7 @@ python examples/train_pokemon_league_sb3_ngopt.py \
 The script prints a new direct battle URL for each League trainer. Use
 `--watch-games` for multiple League attempts, or add `--launch-server` to
 manage the local server automatically. Replays are saved under
-`runs/pokemon_league/replays/`.
+`runs/Pokemon_league/replays/`.
 
 ## Self-play experiment
 

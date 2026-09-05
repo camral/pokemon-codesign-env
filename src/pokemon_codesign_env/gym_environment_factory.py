@@ -1,3 +1,5 @@
+import warnings
+
 import gymnasium
 from gymnasium import spaces
 import numpy as np
@@ -11,7 +13,12 @@ from pokemon_codesign_env.envs import MaxBasePowerPlayerEnv,PokemonLeagueEnv,Ran
 from pokemon_codesign_env.observations import HumanVisibleBattleEncoder
 from pokemon_codesign_env.spaces import TeamDesignSpace
 from pokemon_codesign_env.team_designer import TeamDesigner
+from pokemon_codesign_env.team_pool import validate_team_batch
 
+# The presets differ by opponent policy, not by format restriction: each is a Custom Game of its
+# generation played against a random opponent team. A tiered format would instead reject part of
+# the design space through its banlist and its move-compatibility rules, and Monotype would reject
+# any team whose Pokemon do not all share a type.
 OPPONENTS = {
     "random": RandomPlayerEnv,
     "max_base_power": MaxBasePowerPlayerEnv,
@@ -41,6 +48,7 @@ class PokEnv(gymnasium.Env):
         is_eval_env: bool = False,
         max_action_space_size: int | None = None,
         showdown_path: Path | None = None,
+        team_attempts: int = 1,
         **env_kwargs,
     ):
         super().__init__()
@@ -72,7 +80,11 @@ class PokEnv(gymnasium.Env):
 
         # The embodiment design space, and the compiler that turns a member of it into a team.
         self.embodiment_space = TeamDesignSpace(embodiment_config)
-        self.team_designer = TeamDesigner(embodiment_config)
+        # A retry only redraws the attributes the designer resolves randomly, so it helps a
+        # configuration that leaves moves or EVs random and does nothing for one that designs
+        # them: the same team is rebuilt and rejected again. Raising an illegal design promptly
+        # is more useful than retrying it, so retries are off unless asked for.
+        self.team_designer = TeamDesigner(embodiment_config, max_attempts=team_attempts)
 
         # The wrapped battle environment, which owns the Showdown connection.
         self.observation_encoder = HumanVisibleBattleEncoder.from_showdown(format_config, observation_config=self.observation_config)
@@ -98,9 +110,189 @@ class PokEnv(gymnasium.Env):
         # reset(embodiment=) and step(embodiment=) signatures.
         self._started = False
 
+        # Set when a reset is given an embodiment that cannot be battled with, so that step can
+        # end the episode instead of acting in a battle that was never started.
+        self._embodiment_rejected = False
+
         # Set by make() to the Showdown server this environment owns, so closing the environment
         # also shuts the server down.
         self.server_context = None
+
+    @property
+    def embodiment(self) -> dict:
+        """The embodiment currently installed, read back from the team compiler."""
+        return self.team_designer.get_optimizable_parameter_values()
+
+    @property
+    def designs_an_embodiment(self) -> bool:
+        """Whether this configuration leaves anything for an embodiment designer to choose."""
+        return bool(self.embodiment_space.pokemon_keys)
+
+    def set_embodiment(self, embodiment) -> None:
+        """Validate an embodiment and install it as the team to compile from.
+
+        Accepts either the parameter dictionary or a point of `embodiment_space.flat_space`, so a
+        vector environment can send a row of indices to a worker and let it decode there rather
+        than shipping the design space between processes.
+        """
+        if not isinstance(embodiment, dict):
+            embodiment = self.embodiment_space.from_index(embodiment)
+        if not self.embodiment_space.contains(embodiment):
+            raise ValueError("embodiment is not a member of embodiment_space")
+        self.team_designer.set_optimizable_parameter_values(embodiment)
+
+    def validate_embodiment(self, embodiment: dict | None = None) -> str:
+        """Compile the embodiment into a packed team that Pokemon Showdown has accepted.
+
+        `embodiment_space` judges each parameter on its own, so it cannot see that two moves are
+        individually legal for a species but not learnable together: Showdown rejects Arbok with
+        both Body Slam and Disable, because no single Arbok could have been on both acquisition
+        paths. Only Showdown can settle that, and asking it here means the reason reaches the
+        caller. Left to poke-env, the same failure is raised inside its battle thread and reaches
+        the caller as nothing more informative than a challenge timeout.
+        """
+        if embodiment is not None:
+            self.set_embodiment(embodiment)
+        return self.team_designer.yield_team()
+
+    def validate_embodiments(self, embodiments) -> list[str | None]:
+        """Report which of a batch of embodiments can be battled with.
+
+        Returns one entry per embodiment: None when Showdown accepts it, otherwise the reason it
+        was rejected. A population-based designer screens its candidates together, and one
+        long-lived Showdown validator answers a whole batch in about the time a single
+        `validate_embodiment` call spends starting a process.
+
+        The environment's own embodiment is left untouched, so this can be used to pre-screen
+        candidates without disturbing an episode in progress.
+        """
+        designer = TeamDesigner(self.embodiment_config, validate_teams=False)
+        reasons: list[str | None] = [None] * len(embodiments)
+        compiled, positions = [], []
+        for position, embodiment in enumerate(embodiments):
+            try:
+                values = embodiment if isinstance(embodiment, dict) else self.embodiment_space.from_index(embodiment)
+                if not self.embodiment_space.contains(values):
+                    raise ValueError("embodiment is not a member of embodiment_space")
+                designer.set_optimizable_parameter_values(values)
+                compiled.append(designer.yield_team())
+                positions.append(position)
+            except ValueError as error:
+                reasons[position] = str(error)
+
+        if compiled:
+            problems = validate_team_batch(self.format_config.showdown_path, self.format_config.format_id, compiled)
+            for position, team_problems in zip(positions, problems, strict=True):
+                if team_problems is not None:
+                    reasons[position] = "; ".join(team_problems)
+        return reasons
+
+    def _rejected_observation(self) -> dict:
+        """A zero observation for a reset whose embodiment could not be battled with.
+
+        No battle exists, so there is nothing to encode. Zero is a member of every part of the
+        observation, and the action mask leaves a single action legal so that a masked policy
+        still forms a distribution over it.
+        """
+        observation = {}
+        for name, space in self.observation_space.spaces.items():
+            if isinstance(space, spaces.Discrete):
+                observation[name] = 0
+            else:
+                observation[name] = np.zeros(space.shape, dtype=space.dtype)
+        observation["action_mask"][0] = 1
+        return observation
+
+    def _pad_observation(self, observation: dict) -> dict:
+        """Widen the action mask to the padded action space, marking padded actions illegal."""
+        mask = np.asarray(observation["action_mask"], dtype=np.int8)
+        if mask.size == self.max_action_space_size:
+            return observation
+        padded = np.zeros(self.max_action_space_size, dtype=np.int8)
+        padded[: mask.size] = mask
+        return {**observation, "action_mask": padded}
+
+    def reset(self, *, seed=None, options=None, embodiment: dict | None = None):
+        """Start a battle with `embodiment` as the designed team.
+
+        :param embodiment: the embodiment design to battle with. Required on the first reset of a
+            configuration that optimizes anything; afterwards the previous embodiment is reused
+            when omitted. An embodiment outside `embodiment_space` raises.
+        """
+        super().reset(seed=seed)
+        if seed is not None:
+            # This fixes the designed side of the battle: the designer resolves every random and
+            # defaulted attribute of the team, so the same seed and embodiment give the same team.
+            # It does not make the episode reproducible. The opponent's team comes from Showdown's
+            # own generator and the battle's rolls are the server's, and neither is seeded here.
+            self.team_designer.rng = np.random.default_rng(seed)
+            self.embodiment_space.seed(seed)
+
+        # A vector environment cannot pass the embodiment as an argument, because the vector reset
+        # it wraps takes none, so it arrives in the options instead and is removed before the rest
+        # of the options travel on to the battle.
+        if options and "embodiment" in options:
+            options = dict(options)
+            embodiment = options.pop("embodiment") if embodiment is None else embodiment
+            options = options or None
+
+        # Omitting the embodiment keeps the one already installed, so an automatic reset after a
+        # finished episode battles on with the same design. The first reset has nothing to keep,
+        # and defaults to a random design rather than refusing to start.
+        if embodiment is None and self.designs_an_embodiment and not self.embodiment:
+            embodiment = self.embodiment_space.sample()
+
+        # Compiling here rather than letting poke-env call the designer at battle start keeps the
+        # rejection in this thread, where it can be reported. The battle then uses exactly the team
+        # that Showdown accepted.
+        try:
+            if embodiment is not None:
+                self.set_embodiment(embodiment)
+            packed_team = self.validate_embodiment()
+        except ValueError as error:
+            # A design an optimizer proposed is data, not a programming error: report it and let
+            # whoever is searching decide what a rejected candidate is worth.
+            self._embodiment_rejected = True
+            self._started = True
+            return self._rejected_observation(), {"embodiment_rejected": True, "embodiment_rejection_reason": str(error)}
+
+        self._embodiment_rejected = False
+        self.env.set_learner_team(packed_team)
+
+        observation, info = self.env.reset(seed=seed, options=options)
+        self._started = True
+        return self._pad_observation(observation), {**info, "embodiment_rejected": False}
+
+    def step(self, action=None, embodiment: dict | None = None):
+        """Take one battle action.
+
+        :param embodiment: ignored with a warning. The team is fixed once a battle begins, so this
+            environment does not support transition-level embodiment changes; change a design at
+            reset instead.
+        """
+        if not self._started:
+            raise RuntimeError("reset() must be called before step()")
+        if self._embodiment_rejected:
+            raise RuntimeError("the embodiment given to reset was rejected, so no battle was started and there is nothing to step; reset with a design this environment accepts")
+        if embodiment is not None:
+            warnings.warn("this environment fixes the team for the duration of a battle, so the embodiment given to step is ignored; pass it to reset instead",
+                stacklevel=2)
+        if action is None:
+            raise ValueError("step requires an action")
+
+        action = int(action)
+        if action >= self.natural_action_space_size:
+            raise ValueError(
+                f"action {action} lies in the padded part of the action space, which is masked "
+                f"illegal in every observation; {self.format_config.format_name} uses actions "
+                f"0-{self.natural_action_space_size - 1}"
+            )
+
+        observation, reward, terminated, truncated, info = self.env.step(action)
+        # Gymnasium requires a reset once an episode is over, which PokEnv enforces itself because
+        # it is not wrapped in OrderEnforcing.
+        self._started = not (terminated or truncated)
+        return self._pad_observation(observation), reward, terminated, truncated, info
 
     def close(self) -> None:
         """Close the battle environment and shut down an owned Showdown server."""

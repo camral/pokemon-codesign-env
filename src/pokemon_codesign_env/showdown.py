@@ -3,6 +3,10 @@ import subprocess
 from functools import lru_cache
 from pathlib import Path
 
+from poke_env.battle.pokemon_type import PokemonType
+from poke_env.data import GenData
+from poke_env.data.normalize import to_id_str
+
 
 def get_format_rules(format_id: str, showdown_path: Path) -> dict[str, object]:
     """Return the resolved rules for a Pokemon Showdown format."""
@@ -81,8 +85,17 @@ def _get_parameter_catalog(
         // that requires a specific item or move, such as Arceus-Fire or Genesect-Shock, is only
         // legal while holding it, which a team search choosing species and items independently
         // cannot guarantee. Both are excluded so every offered species is directly usable.
+        // isNonstandard covers several unrelated things, so only some of its values disqualify a
+        // species. CAP entries are fan-made and Custom ones are glitches such as MissingNo., and
+        // neither is a Pokemon this benchmark should design with. Future ones belong to a later
+        // game than this dex even though their generation number matches, such as the Hisui formes
+        // in Generation 8, so excluding them is the same restriction species.gen already applies.
+        // Past, LGPE and Unobtainable species are real and a Custom Game accepts them, so a
+        // Generation 9 format keeps offering Caterpie: they stay.
+        const excludedKinds = ['CAP', 'Custom', 'Future'];
         const isEligibleSpecies = species => (
             species.exists &&
+            !excludedKinds.includes(species.isNonstandard) &&
             !validator.ruleTable.isBannedSpecies(species) &&
             species.gen <= dex.gen &&
             !species.battleOnly &&
@@ -183,6 +196,7 @@ def _get_parameter_catalog(
         }
 
         for (const param of ['species', 'item', 'nature']) catalog[param].sort((left, right) => (left || '').localeCompare(right || ''));
+        catalog.generation = dex.gen;
         console.log(JSON.stringify(catalog));
     """
 
@@ -198,7 +212,44 @@ def _get_parameter_catalog(
         message = result.stderr.strip() or result.stdout.strip()
         raise RuntimeError(f"Could not resolve Pokemon Showdown parameter catalog: {message}")
 
-    return json.loads(result.stdout)
+    return _drop_unrepresentable_species(json.loads(result.stdout))
+
+
+def _poke_env_can_represent(species: str, generation: int) -> bool:
+    """Return whether poke-env can build its own view of a species from its pokedex."""
+    entry = GenData.from_gen(generation).pokedex.get(to_id_str(species))
+    if entry is None or "types" not in entry:
+        return False
+    try:
+        for pokemon_type in entry["types"]:
+            PokemonType.from_name(pokemon_type)
+    except KeyError:
+        return False
+    return True
+
+
+def _drop_unrepresentable_species(catalog: dict) -> dict:
+    """Remove species poke-env cannot represent from a Showdown catalog.
+
+    Showdown and poke-env ship independent data, and where poke-env's is missing or narrower it
+    raises a KeyError from inside its battle-message handler: an absent pokedex entry, or a type it
+    has no member for, as MissingNo. is typed Bird. That happens on the async task that reads the
+    battle stream, so nothing surfaces the error, the battle simply stops progressing and the run
+    only reports it much later as a reset that timed out. Filtering here covers both ways a species
+    reaches a battle, since the design space and TeamDesigner's random teams read this one catalog.
+    """
+    generation = catalog["generation"]
+    usable = [species for species in catalog["species"] if _poke_env_can_represent(species, generation)]
+    if len(usable) == len(catalog["species"]):
+        return catalog
+
+    dropped = set(catalog["species"]) - set(usable)
+    catalog["species"] = usable
+    for param in ("moves", "ability", "gender", "tera_type"):
+        for species in dropped:
+            catalog[param].pop(species, None)
+    catalog["aliases"] = {alias: name for alias, name in catalog["aliases"].items() if name not in dropped}
+    return catalog
 
 
 def get_parameter_values(

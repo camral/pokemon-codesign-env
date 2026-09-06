@@ -132,6 +132,19 @@ def _create_showdown_runtime(
     return temporary_directory, runtime_path
 
 
+def _describe_stuck_shard(endpoint: ShowdownEndpoint, log_path: Path | None) -> str:
+    """Explain a shard that is running but not answering, using its own startup output."""
+    detail = ""
+    try:
+        if log_path is not None:
+            lines = [line for line in log_path.read_text().splitlines() if line.strip()]
+            detail = f" last output: {lines[-1]}" if lines else " no output"
+    except OSError:
+        detail = ""
+    listening = "reported itself listening but is not answering" if "listening" in detail else "never reported listening"
+    return f"  {endpoint.host}:{endpoint.port} {listening}.{detail}"
+
+
 @contextmanager
 def managed_showdown_cluster(enabled: bool, showdown_path: Path, cluster: ShowdownClusterConfig, verbose: bool = False, startup_timeout: float | None = None):
     """Launch missing local Showdown shards and stop only those launched here."""
@@ -162,6 +175,7 @@ def managed_showdown_cluster(enabled: bool, showdown_path: Path, cluster: Showdo
     output = None if verbose else subprocess.DEVNULL
     processes = []
     runtimes = []
+    logs: dict[ShowdownEndpoint, Path] = {}
     # Building one runtime is filesystem work rather than computation, so the shards are prepared
     # together. Serially they cost about a third of a second each, which is a minute of dead time
     # on a 128 shard cluster before the first server is even asked to start.
@@ -180,11 +194,19 @@ def managed_showdown_cluster(enabled: bool, showdown_path: Path, cluster: Showdo
                 f"runtime_dir={base_dir} shared_dist={shared}"
             )
         for endpoint, (temporary_directory, runtime_path) in zip(missing, prepared):
+            # A shard that cannot take its port keeps running rather than exiting, so the only
+            # account of what went wrong is its own output. Kept on disk when it is not being
+            # printed, so a startup failure can say why instead of just naming the address.
+            log_path = runtime_path / "startup.log"
+            destination = output if verbose else open(log_path, "w")
             process = subprocess.Popen(
                 ["node", "--preserve-symlinks", str(runtime_path / "pokemon-showdown"), "start", "--skip-build", str(endpoint.port), "--no-security"],
                 cwd=runtime_path,
-                stdout=output, stderr=output, start_new_session=True,
+                stdout=destination, stderr=subprocess.STDOUT if not verbose else destination, start_new_session=True,
             )
+            if not verbose:
+                destination.close()
+            logs[endpoint] = log_path
             processes.append((endpoint, process))
             runtimes.append(temporary_directory)
     if startup_timeout is None:
@@ -209,10 +231,10 @@ def managed_showdown_cluster(enabled: bool, showdown_path: Path, cluster: Showdo
                         raise RuntimeError(f"Pokemon Showdown shard {endpoint.host}:{endpoint.port} exited during startup with code {return_code}.")
                 now = time.monotonic()
                 if now >= deadline:
-                    addresses = ", ".join(f"{endpoint.host}:{endpoint.port}" for endpoint in unavailable)
                     raise TimeoutError(
                         f"Pokemon Showdown shards did not start within {startup_timeout:g} seconds "
-                        f"({len(missing) - len(unavailable)}/{len(missing)} started): {addresses}"
+                        f"({len(missing) - len(unavailable)}/{len(missing)} started):\n"
+                        + "\n".join(_describe_stuck_shard(endpoint, logs.get(endpoint)) for endpoint in unavailable)
                     )
                 if verbose and now - reported >= 10.0:
                     reported = now

@@ -1,6 +1,6 @@
 import asyncio
 import logging
-import subprocess
+from collections import deque
 from pathlib import Path
 
 import numpy as np
@@ -13,7 +13,7 @@ from poke_env.teambuilder import Teambuilder
 from pokemon_codesign_env.configs import FormatConfig, ObservationConfig
 from pokemon_codesign_env.observations import HumanVisibleBattleEncoder
 from pokemon_codesign_env.protocol import install_gen4_protocol_adapter
-from pokemon_codesign_env.showdown import validate_team
+from pokemon_codesign_env.team_pool import generate_team_batch, validate_team_batch
 
 
 class _UnexpectedEffectWarningFilter(logging.Filter):
@@ -39,40 +39,56 @@ class ShowdownRandomTeam(Teambuilder):
     opponents reproducible, which a battle needs as much as the designed team does.
     """
 
-    def __init__(self, source_format: str, target_format: str, showdown_path: Path, max_attempts: int = 25, seed=None):
+    def __init__(self, source_format: str, target_format: str, showdown_path: Path, max_attempts: int = 25, seed=None, batch_size: int = 64):
         super().__init__()
         self.source_format = source_format
         self.target_format = target_format
         self.showdown_path = showdown_path
         self.max_attempts = max_attempts
+        self.batch_size = max(1, batch_size)
         self.rng = np.random.default_rng(seed)
+        self._ready = deque()
 
     def seed(self, seed) -> None:
         """Draw every following opponent team from a stream starting at this seed."""
         self.rng = np.random.default_rng(seed)
+        # Teams already drawn belong to the previous stream and must not outlive it.
+        self._ready.clear()
 
     def _next_seed(self) -> str:
         """Showdown takes its seed as four 16-bit numbers."""
         return ",".join(str(int(value)) for value in self.rng.integers(0, 65536, size=4))
 
     def yield_team(self) -> str:
+        if not self._ready:
+            self._refill()
+        return self._ready.popleft()
+
+    def _refill(self) -> None:
+        """Draw a batch of teams from the seed stream, keeping the ones the target format accepts.
+
+        A team used to cost two Node processes, one to generate it and one to validate it, which
+        was most of what resetting an environment spent. Both steps now run in a process that
+        stays alive and handles a whole batch, so the cost is amortised over batch_size battles.
+        Seeds are still drawn one per team in the same order and valid teams are handed out in
+        that order, so a given seed produces exactly the sequence of opponents it did before.
+        """
         last_error = None
         for _ in range(self.max_attempts):
+            # A fresh seed per team, so a retry after a rejected team draws a different one rather
+            # than reproducing the same rejection.
+            seeds = [self._next_seed() for _ in range(self.batch_size)]
             try:
-                # A fresh seed per attempt, so a retry after a rejected team draws a different one
-                # rather than reproducing the same rejection.
-                result = subprocess.run(
-                    [str(self.showdown_path / "pokemon-showdown"), "generate-team", self.source_format, self._next_seed()],
-                    cwd=self.showdown_path, capture_output=True, check=False, text=True,
-                )
-                if result.returncode:
-                    message = result.stderr.strip() or result.stdout.strip()
-                    raise RuntimeError(f"Pokemon Showdown could not generate a team: {message}")
-                packed_team = result.stdout.strip()
-                validate_team(self.target_format, packed_team, self.showdown_path)
-                return packed_team
+                candidates = generate_team_batch(self.showdown_path, self.source_format, seeds)
+                problems = validate_team_batch(self.showdown_path, self.target_format, candidates)
             except (RuntimeError, ValueError) as error:
                 last_error = error
+                continue
+            valid = [team for team, issue in zip(candidates, problems, strict=True) if issue is None]
+            if valid:
+                self._ready.extend(valid)
+                return
+            last_error = ValueError("Pokemon Showdown rejected every generated team")
         raise ValueError(f"Could not generate a valid random opponent team: {last_error}") from last_error
 
 

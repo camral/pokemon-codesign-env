@@ -282,15 +282,14 @@ def get_parameter_values(
 
 
 def validate_team(format_id: str, packed_team: str, showdown_path: Path) -> None:
-    """Validate a packed team with the local Pokemon Showdown installation."""
-    result = subprocess.run(
-        [str(showdown_path / "pokemon-showdown"), "validate-team", format_id],
-        cwd=showdown_path,
-        input=packed_team,
-        capture_output=True,
-        check=False,
-        text=True,
-    )
-    if result.returncode:
-        message = result.stderr.strip() or result.stdout.strip()
-        raise ValueError(f"Pokemon Showdown rejected the generated team: {message}")
+    """Validate a packed team with the local Pokemon Showdown installation.
+
+    Every battle validates the team it is about to use, so this runs on a Showdown process that
+    stays alive rather than one started per call: spawning Node cost about a third of a second,
+    which was most of what resetting an environment spent.
+    """
+    from pokemon_codesign_env.team_pool import validate_team_batch
+
+    problems = validate_team_batch(Path(showdown_path), format_id, [packed_team])[0]
+    if problems:
+        raise ValueError(f"Pokemon Showdown rejected the generated team: {'; '.join(problems)}")

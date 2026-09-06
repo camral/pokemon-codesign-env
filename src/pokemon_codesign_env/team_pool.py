@@ -58,24 +58,17 @@ class RandomTeamPool:
         raise RuntimeError(f"Could only generate {len(valid_teams)} valid teams for a pool of {size}")
 
 
-class TeamBatchValidator:
-    """Keep one Showdown validator process alive for repeated team batches."""
+class _PersistentShowdownProcess:
+    """Keep one Showdown worker process alive and talk to it in JSON lines.
 
-    SCRIPT = """
-        const readline = require('readline');
-        const { Teams } = require('./dist/sim/teams');
-        const { TeamValidator } = require('./dist/sim/team-validator');
-        const validator = TeamValidator.get(process.argv[1]);
-        const input = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
-        input.on('line', line => {
-            try {
-                const teams = JSON.parse(line);
-                process.stdout.write(JSON.stringify(teams.map(team => validator.validateTeam(Teams.unpack(team)) || null)) + '\\n');
-            } catch (error) {
-                process.stdout.write(JSON.stringify({ error: error.stack || String(error) }) + '\\n');
-            }
-        });
+    Spawning Node costs a few hundred milliseconds, which is most of what an episode boundary
+    spends, so the processes that generate and validate teams are started once and reused. The
+    owning pid is tracked because a worker process inherits this object across a fork and must not
+    speak to a pipe another process owns.
     """
+
+    SCRIPT: str
+    FAILURE: str
 
     def __init__(self, showdown_path: Path, format_id: str):
         self.showdown_path = Path(showdown_path).resolve()
@@ -106,29 +99,31 @@ class TeamBatchValidator:
             self.close()
             self._start()
 
-    def validate(self, teams: list[str]) -> list[list[str] | None]:
+    def _check(self, result, request):
+        """Hook for a subclass to reject a structurally wrong reply."""
+        return result
+
+    def request(self, payload):
+        """Send one request and return its parsed reply, restarting a dead worker once."""
         with self.lock:
             for attempt in range(2):
                 self._ensure_started()
                 try:
-                    self.process.stdin.write(json.dumps(teams) + "\n")
+                    self.process.stdin.write(json.dumps(payload) + "\n")
                     self.process.stdin.flush()
                     response = self.process.stdout.readline()
                     if not response:
                         message = self.process.stderr.read().strip()
-                        raise RuntimeError(message or "validator process exited without a response")
+                        raise RuntimeError(message or "worker process exited without a response")
                     result = json.loads(response)
                     if isinstance(result, dict) and "error" in result:
                         raise RuntimeError(result["error"])
-                    if not isinstance(result, list) or len(result) != len(teams):
-                        result_count = len(result) if isinstance(result, list) else type(result).__name__
-                        raise RuntimeError(f"validator returned {result_count} results for {len(teams)} teams")
-                    return result
+                    return self._check(result, payload)
                 except (BrokenPipeError, json.JSONDecodeError, OSError, RuntimeError) as error:
                     self.close()
                     if attempt:
-                        raise RuntimeError(f"Pokemon Showdown could not validate the generated team pool: {error}") from error
-        raise RuntimeError("Pokemon Showdown could not validate the generated team pool")
+                        raise RuntimeError(f"{self.FAILURE}: {error}") from error
+        raise RuntimeError(self.FAILURE)
 
     def close(self) -> None:
         if self.process is None:
@@ -154,28 +149,99 @@ class TeamBatchValidator:
         self.owner_pid = None
 
 
-_TEAM_BATCH_VALIDATORS = {}
-_TEAM_BATCH_VALIDATORS_LOCK = Lock()
+class TeamBatchGenerator(_PersistentShowdownProcess):
+    """Generate seeded random teams in batches without a process per team.
+
+    Showdown's own generate-teams command produces a batch but ignores a seed, which would give up
+    the reproducible opponents the environment depends on. Passing one seed per team reproduces
+    exactly what generate-team does one battle at a time.
+    """
+
+    FAILURE = "Pokemon Showdown could not generate a team batch"
+
+    SCRIPT = """
+        const readline = require('readline');
+        const { Teams } = require('./dist/sim/teams');
+        const format = process.argv[1];
+        const input = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+        input.on('line', line => {
+            try {
+                const seeds = JSON.parse(line);
+                process.stdout.write(JSON.stringify(seeds.map(seed => Teams.pack(Teams.generate(format, { seed })))) + '\\n');
+            } catch (error) {
+                process.stdout.write(JSON.stringify({ error: error.stack || String(error) }) + '\\n');
+            }
+        });
+    """
+
+    def _check(self, result, request):
+        if not isinstance(result, list) or len(result) != len(request):
+            count = len(result) if isinstance(result, list) else type(result).__name__
+            raise RuntimeError(f"generator returned {count} teams for {len(request)} seeds")
+        return result
+
+    def generate(self, seeds: list[str]) -> list[str]:
+        return self.request(seeds)
 
 
-def _get_team_batch_validator(showdown_path: Path, format_id: str) -> TeamBatchValidator:
-    key = (Path(showdown_path).resolve(), format_id)
-    with _TEAM_BATCH_VALIDATORS_LOCK:
-        if key not in _TEAM_BATCH_VALIDATORS:
-            _TEAM_BATCH_VALIDATORS[key] = TeamBatchValidator(*key)
-        return _TEAM_BATCH_VALIDATORS[key]
+class TeamBatchValidator(_PersistentShowdownProcess):
+    """Keep one Showdown validator process alive for repeated team batches."""
+
+    FAILURE = "Pokemon Showdown could not validate the generated team pool"
+
+    SCRIPT = """
+        const readline = require('readline');
+        const { Teams } = require('./dist/sim/teams');
+        const { TeamValidator } = require('./dist/sim/team-validator');
+        const validator = TeamValidator.get(process.argv[1]);
+        const input = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+        input.on('line', line => {
+            try {
+                const teams = JSON.parse(line);
+                process.stdout.write(JSON.stringify(teams.map(team => validator.validateTeam(Teams.unpack(team)) || null)) + '\\n');
+            } catch (error) {
+                process.stdout.write(JSON.stringify({ error: error.stack || String(error) }) + '\\n');
+            }
+        });
+    """
+
+    def _check(self, result, request):
+        if not isinstance(result, list) or len(result) != len(request):
+            count = len(result) if isinstance(result, list) else type(result).__name__
+            raise RuntimeError(f"validator returned {count} results for {len(request)} teams")
+        return result
+
+    def validate(self, teams: list[str]) -> list[list[str] | None]:
+        return self.request(teams)
 
 
-def _close_team_batch_validators() -> None:
-    for validator in _TEAM_BATCH_VALIDATORS.values():
-        validator.close()
+_SHOWDOWN_WORKERS = {}
+_SHOWDOWN_WORKERS_LOCK = Lock()
 
 
-atexit.register(_close_team_batch_validators)
+def _get_showdown_worker(worker_class, showdown_path: Path, format_id: str):
+    key = (worker_class, Path(showdown_path).resolve(), format_id)
+    with _SHOWDOWN_WORKERS_LOCK:
+        if key not in _SHOWDOWN_WORKERS:
+            _SHOWDOWN_WORKERS[key] = worker_class(*key[1:])
+        return _SHOWDOWN_WORKERS[key]
+
+
+def _close_showdown_workers() -> None:
+    for worker in _SHOWDOWN_WORKERS.values():
+        worker.close()
+
+
+atexit.register(_close_showdown_workers)
 
 
 def validate_team_batch(showdown_path: Path, format_id: str, teams: list[str]) -> list[list[str] | None]:
-    return _get_team_batch_validator(showdown_path, format_id).validate(teams)
+    return _get_showdown_worker(TeamBatchValidator, showdown_path, format_id).validate(teams)
+
+
+def generate_team_batch(showdown_path: Path, format_id: str, seeds: list[str]) -> list[str]:
+    """Generate one packed team per seed, reusing a single Showdown process."""
+    return _get_showdown_worker(TeamBatchGenerator, showdown_path, format_id).generate(seeds)
 
 
 class PooledTeamBuilder(Teambuilder):

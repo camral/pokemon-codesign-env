@@ -10,6 +10,7 @@ again when the environment is closed. There is no option to attach to a server s
 started: ports are claimed from the operating system, so concurrent runs never collide.
 """
 
+import random
 import socket
 from contextlib import ExitStack
 from math import ceil
@@ -33,8 +34,23 @@ def default_showdown_path() -> Path:
     return Path(__file__).resolve().parents[2] / "pokemon-showdown"
 
 
+# Shard ports are searched below the kernel's ephemeral range but above the registered services.
+SHARD_PORT_FLOOR = 10_000
+PORT_BLOCK_ATTEMPTS = 200
+
+
+def _ephemeral_port_range() -> tuple[int, int]:
+    """The port range the kernel hands out for outgoing connections."""
+    try:
+        with open("/proc/sys/net/ipv4/ip_local_port_range") as source:
+            low, high = (int(value) for value in source.read().split())
+            return low, high
+    except (OSError, ValueError):
+        return 32_768, 60_999
+
+
 def _claim_ports(count: int, host: str = DEFAULT_SHOWDOWN_HOST) -> list[int]:
-    """Ask the operating system for `count` contiguous-free ports to launch shards on."""
+    """Ask the operating system for `count` free ports to launch shards on."""
     sockets = []
     try:
         for _ in range(count):
@@ -49,13 +65,45 @@ def _claim_ports(count: int, host: str = DEFAULT_SHOWDOWN_HOST) -> list[int]:
             candidate.close()
 
 
+def _claim_port_block(count: int, host: str = DEFAULT_SHOWDOWN_HOST) -> int:
+    """Return the base of `count` contiguous free ports the kernel will not reassign.
+
+    Binding port 0 always answers from the ephemeral range, which is the same range the kernel
+    draws on for every outgoing connection. A cluster whose shards live there is racing every
+    other socket on the machine, including the thousands this run is about to open and anything
+    another user is doing, and a shard that loses the race binds nothing while its process stays
+    up: the cluster then waits out the whole startup budget for a server that will never answer.
+    Searching below that range leaves only deliberate services to collide with, which
+    _require_free_ports reports immediately. The start is random so concurrent runs rarely meet.
+    """
+    ephemeral_low, _ephemeral_high = _ephemeral_port_range()
+    ceiling = ephemeral_low - count
+    if ceiling <= SHARD_PORT_FLOOR:
+        return min(_claim_ports(count, host))
+    for _ in range(PORT_BLOCK_ATTEMPTS):
+        base = random.randrange(SHARD_PORT_FLOOR, ceiling)
+        if all(_port_is_free(host, base + offset) for offset in range(count)):
+            return base
+    raise RuntimeError(
+        f"could not find {count} contiguous free ports between {SHARD_PORT_FLOOR} and {ephemeral_low}. "
+        f"Pass base_port to choose the range yourself, or run fewer shards."
+    )
+
+
 def _port_is_free(host: str, port: int) -> bool:
-    """Whether a shard could bind this port right now."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        try:
-            probe.bind((host, port))
-        except OSError:
-            return False
+    """Whether a shard could bind this port right now.
+
+    Showdown binds the wildcard address rather than one interface, so a port is only usable if
+    that bind would succeed. Checking the loopback address alone lets a port through that the
+    shard cannot actually take, and the shard then reports itself as listening while every client
+    connection reaches whatever already held the address.
+    """
+    for address in {"", host}:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            try:
+                probe.bind((address, port))
+            except OSError:
+                return False
     return True
 
 
@@ -95,7 +143,7 @@ def _launch_cluster(
     """Launch `shards` Showdown servers, registering their shutdown on `stack`."""
     if base_port is None:
         # One contiguous range is enough because ShowdownClusterConfig numbers shards from a base.
-        base_port = min(_claim_ports(shards, host))
+        base_port = _claim_port_block(shards, host)
     cluster = ShowdownClusterConfig(host=host, base_port=base_port, shards=shards)
     # managed_showdown_cluster attaches to a shard that is already up, which these environments
     # must never do, so an occupied port is an error rather than a server to borrow.

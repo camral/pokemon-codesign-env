@@ -89,7 +89,8 @@ def shard_count(num_envs: int, envs_per_shard: int = DEFAULT_ENVS_PER_SHARD) -> 
 
 
 def _launch_cluster(
-    stack: ExitStack, shards: int, host: str, base_port: int | None, showdown_path: Path | None, verbose: bool
+    stack: ExitStack, shards: int, host: str, base_port: int | None, showdown_path: Path | None, verbose: bool,
+    startup_timeout: float | None = None,
 ) -> ShowdownClusterConfig:
     """Launch `shards` Showdown servers, registering their shutdown on `stack`."""
     if base_port is None:
@@ -99,7 +100,9 @@ def _launch_cluster(
     # managed_showdown_cluster attaches to a shard that is already up, which these environments
     # must never do, so an occupied port is an error rather than a server to borrow.
     _require_free_ports(cluster)
-    stack.enter_context(managed_showdown_cluster(True, showdown_path or default_showdown_path(), cluster, verbose=verbose))
+    stack.enter_context(managed_showdown_cluster(
+        True, showdown_path or default_showdown_path(), cluster, verbose=verbose, startup_timeout=startup_timeout,
+    ))
     return cluster
 
 
@@ -257,6 +260,7 @@ def make_vec(
     showdown_path: Path | None = None,
     host: str = DEFAULT_SHOWDOWN_HOST,
     base_port: int | None = None,
+    startup_timeout: float | None = None,
     verbose: bool = False,
     **env_kwargs,
 ):
@@ -271,6 +275,8 @@ def make_vec(
         environments; environment `rank` battles on shard `rank % shards`.
     :param base_port: launch the shards from this port instead of a range claimed from the
         operating system.
+    :param startup_timeout: how long the shards have to start serving. Defaults to a budget that
+        grows with `shards`, since a large cluster boots every server against the same machine.
     """
     if "server_configuration" in env_kwargs:
         raise ValueError("server_configuration cannot be set; make_vec launches and owns its Showdown servers")
@@ -283,7 +289,7 @@ def make_vec(
 
     stack = ExitStack()
     try:
-        cluster = _launch_cluster(stack, shards, host, base_port, showdown_path, verbose)
+        cluster = _launch_cluster(stack, shards, host, base_port, showdown_path, verbose, startup_timeout)
         factories = [
             _env_factory({
                 "opponent": opponent,

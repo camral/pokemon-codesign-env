@@ -36,6 +36,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--envs-per-worker", type=int, default=32)
     parser.add_argument("--shards", type=int, default=0, help="Showdown servers, or 0 for one per 32 environments.")
     parser.add_argument("--step-timeout", type=float, default=120.0)
+    parser.add_argument(
+        "--startup-timeout", type=float,
+        help="Seconds for the Showdown servers to start. Defaults to a budget that grows with --shards.",
+    )
+    parser.add_argument("--verbose", action="store_true", help="Report cluster startup progress.")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--output", type=Path, help="Write the measurements here as JSON.")
     return parser.parse_args()
@@ -68,7 +73,8 @@ def benchmark(args: argparse.Namespace) -> dict:
     started = time.perf_counter()
     vector_env, _base_embodiments = pce.make_vec(
         "random", num_envs=args.num_envs, format_config=format_config, embodiment_config=search_config,
-        shards=shards, envs_per_worker=args.envs_per_worker, step_timeout=args.step_timeout, monitor=False,
+        shards=shards, envs_per_worker=args.envs_per_worker, step_timeout=args.step_timeout,
+        startup_timeout=args.startup_timeout, verbose=args.verbose, monitor=False,
     )
     construction_seconds = time.perf_counter() - started
     print(f"construction_seconds={construction_seconds:.1f}", flush=True)

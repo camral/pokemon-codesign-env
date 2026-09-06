@@ -5,6 +5,7 @@ import socket
 import subprocess
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -68,8 +69,41 @@ def _link_or_copy(source: str, destination: str) -> None:
         shutil.copy2(source, destination)
 
 
-def _create_showdown_runtime(showdown_path: Path, port: int) -> tuple[tempfile.TemporaryDirectory, Path]:
-    temporary_directory = tempfile.TemporaryDirectory(prefix=f"pokemon-showdown-{port}-", dir="/tmp")
+RUNTIME_WORKERS = 16
+
+
+def _runtime_base_dir(showdown_path: Path) -> str:
+    """Return a scratch directory on the same filesystem as the Showdown checkout.
+
+    Every shard's runtime hardlinks the 106MB dist tree, and a hardlink cannot cross a filesystem.
+    A cluster node usually keeps the checkout on shared storage and /tmp on a local disk, where
+    os.link fails with EXDEV and _link_or_copy quietly falls back to copying instead: 128 shards
+    then move 13GB off shared storage before the first server starts, which is slow enough to look
+    like the servers are failing to boot. Staying on one filesystem keeps the hardlinks working.
+    """
+    device = os.stat(showdown_path).st_dev
+    for candidate in ("/tmp", tempfile.gettempdir()):
+        try:
+            if os.stat(candidate).st_dev == device:
+                return candidate
+        except OSError:
+            continue
+    runtimes = showdown_path.parent / ".showdown-runtimes"
+    runtimes.mkdir(exist_ok=True)
+    return str(runtimes)
+
+
+def _default_startup_timeout(shards: int) -> float:
+    """Startup budget for a cluster, which grows with the number of servers booting together.
+
+    Each shard loads the full Showdown dex, so a large cluster is contending for the machine and
+    a fixed budget that suits one server expires long before 128 of them are serving.
+    """
+    return max(120.0, 60.0 + 4.0 * shards)
+
+
+def _create_showdown_runtime(showdown_path: Path, port: int, base_dir: str | None = None) -> tuple[tempfile.TemporaryDirectory, Path]:
+    temporary_directory = tempfile.TemporaryDirectory(prefix=f"pokemon-showdown-{port}-", dir=base_dir or _runtime_base_dir(showdown_path))
     runtime_path = Path(temporary_directory.name)
     for source in showdown_path.iterdir():
         destination = runtime_path / source.name
@@ -87,7 +121,7 @@ def _create_showdown_runtime(showdown_path: Path, port: int) -> tuple[tempfile.T
 
 
 @contextmanager
-def managed_showdown_cluster(enabled: bool, showdown_path: Path, cluster: ShowdownClusterConfig, verbose: bool = False, startup_timeout: float = 120.0):
+def managed_showdown_cluster(enabled: bool, showdown_path: Path, cluster: ShowdownClusterConfig, verbose: bool = False, startup_timeout: float | None = None):
     """Launch missing local Showdown shards and stop only those launched here."""
     endpoints = cluster.endpoints
     missing = [endpoint for endpoint in endpoints if not is_showdown_running(endpoint)]
@@ -116,8 +150,16 @@ def managed_showdown_cluster(enabled: bool, showdown_path: Path, cluster: Showdo
     output = None if verbose else subprocess.DEVNULL
     processes = []
     runtimes = []
-    for endpoint in missing:
-        temporary_directory, runtime_path = _create_showdown_runtime(showdown_path, endpoint.port)
+    # Building one runtime is filesystem work rather than computation, so the shards are prepared
+    # together. Serially they cost about a third of a second each, which is a minute of dead time
+    # on a 128 shard cluster before the first server is even asked to start.
+    base_dir = _runtime_base_dir(showdown_path)
+    started = time.monotonic()
+    with ThreadPoolExecutor(max_workers=min(RUNTIME_WORKERS, len(missing))) as pool:
+        prepared = list(pool.map(lambda endpoint: _create_showdown_runtime(showdown_path, endpoint.port, base_dir), missing))
+    if verbose:
+        print(f"showdown_cluster=status_prepared shards={len(missing)} seconds={time.monotonic() - started:.1f} runtime_dir={base_dir}")
+    for endpoint, (temporary_directory, runtime_path) in zip(missing, prepared):
         process = subprocess.Popen(
             ["node", "--preserve-symlinks", str(runtime_path / "pokemon-showdown"), "start", "--skip-build", str(endpoint.port), "--no-security"],
             cwd=runtime_path,
@@ -125,21 +167,37 @@ def managed_showdown_cluster(enabled: bool, showdown_path: Path, cluster: Showdo
         )
         processes.append((endpoint, process))
         runtimes.append(temporary_directory)
-    deadline = time.monotonic() + startup_timeout
+    if startup_timeout is None:
+        startup_timeout = _default_startup_timeout(len(missing))
+    started = time.monotonic()
+    deadline = started + startup_timeout
+    reported = started
 
     try:
-        while True:
-            unavailable = [endpoint for endpoint in missing if not is_showdown_running(endpoint)]
-            if not unavailable:
-                break
-            for endpoint, process in processes:
-                return_code = process.poll()
-                if return_code is not None:
-                    raise RuntimeError(f"Pokemon Showdown shard {endpoint.host}:{endpoint.port} exited during startup with code {return_code}.")
-            if time.monotonic() >= deadline:
-                addresses = ", ".join(f"{endpoint.host}:{endpoint.port}" for endpoint in unavailable)
-                raise TimeoutError(f"Pokemon Showdown shards did not start within {startup_timeout:g} seconds: {addresses}")
-            time.sleep(0.1)
+        # Probing the shards one after another would take as long as a whole sweep to notice the
+        # deadline, since a shard that has bound its port but is not serving yet holds the probe
+        # open for its full timeout. On a large cluster that is longer than the budget itself.
+        with ThreadPoolExecutor(max_workers=min(RUNTIME_WORKERS, len(missing))) as pool:
+            while True:
+                ready = list(pool.map(is_showdown_running, missing))
+                unavailable = [endpoint for endpoint, up in zip(missing, ready) if not up]
+                if not unavailable:
+                    break
+                for endpoint, process in processes:
+                    return_code = process.poll()
+                    if return_code is not None:
+                        raise RuntimeError(f"Pokemon Showdown shard {endpoint.host}:{endpoint.port} exited during startup with code {return_code}.")
+                now = time.monotonic()
+                if now >= deadline:
+                    addresses = ", ".join(f"{endpoint.host}:{endpoint.port}" for endpoint in unavailable)
+                    raise TimeoutError(
+                        f"Pokemon Showdown shards did not start within {startup_timeout:g} seconds "
+                        f"({len(missing) - len(unavailable)}/{len(missing)} started): {addresses}"
+                    )
+                if verbose and now - reported >= 10.0:
+                    reported = now
+                    print(f"showdown_cluster=status_starting started={len(missing) - len(unavailable)}/{len(missing)} seconds={now - started:.0f}")
+                time.sleep(0.1)
         if verbose:
             print(
                 f"showdown_cluster=status_started launched_shards={len(processes)} total_shards={len(endpoints)} "

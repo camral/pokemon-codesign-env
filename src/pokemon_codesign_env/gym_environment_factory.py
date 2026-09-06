@@ -112,6 +112,10 @@ class PokEnv(gymnasium.Env):
         # reset(embodiment=) and step(embodiment=) signatures.
         self._started = False
 
+        # The design this environment starts from. Sampling it once rather than at every reset
+        # gives a known state to return to, and makes a reset that is given no design repeatable.
+        self.base_embodiment = self.embodiment_space.sample() if self.designs_an_embodiment else {}
+
         # Set when a reset is given an embodiment that cannot be battled with, so that step can
         # end the episode instead of acting in a battle that was never started.
         self._embodiment_rejected = False
@@ -143,7 +147,19 @@ class PokEnv(gymnasium.Env):
             raise ValueError("embodiment is not a member of embodiment_space")
         self.team_designer.set_optimizable_parameter_values(embodiment)
 
-    def validate_embodiment(self, embodiment: dict | None = None) -> str:
+    def validate_embodiment(self, embodiment=None) -> bool:
+        """Whether a design can actually be battled with.
+
+        Membership of `embodiment_space` does not settle this. The space judges each parameter on
+        its own, so it cannot see that two moves are individually legal for a species but not
+        learnable together; only Showdown can. `validate_embodiments` answers the same question for
+        a whole population at a fraction of the cost, and reports why each was rejected.
+
+        The environment's own design is left untouched.
+        """
+        return self.validate_embodiments([self.base_embodiment if embodiment is None else embodiment])[0] is None
+
+    def _compile_embodiment(self, embodiment: dict | None = None) -> str:
         """Compile the embodiment into a packed team that Pokemon Showdown has accepted.
 
         `embodiment_space` judges each parameter on its own, so it cannot see that two moves are
@@ -217,9 +233,11 @@ class PokEnv(gymnasium.Env):
     def reset(self, *, seed=None, options=None, embodiment: dict | None = None):
         """Start a battle with `embodiment` as the designed team.
 
-        :param embodiment: the embodiment design to battle with. Required on the first reset of a
-            configuration that optimizes anything; afterwards the previous embodiment is reused
-            when omitted. An embodiment outside `embodiment_space` raises.
+        :param embodiment: the design to battle with. Omitting it keeps the design already
+            installed, or falls back to `base_embodiment` on the first reset.
+        :returns: the observation, the info, and `embodiment_rejected`, one flag per environment.
+            A design that cannot be battled with is reported rather than raised, because what a
+            rejected candidate is worth is the caller's decision. Stepping afterwards raises.
         """
         super().reset(seed=seed)
         if seed is not None:
@@ -239,10 +257,10 @@ class PokEnv(gymnasium.Env):
             options = options or None
 
         # Omitting the embodiment keeps the one already installed, so an automatic reset after a
-        # finished episode battles on with the same design. The first reset has nothing to keep,
-        # and defaults to a random design rather than refusing to start.
+        # finished episode battles on with the same design. The first reset has nothing to keep and
+        # falls back to the base design, which is a known state rather than a fresh random one.
         if embodiment is None and self.designs_an_embodiment and not self.embodiment:
-            embodiment = self.embodiment_space.sample()
+            embodiment = self.base_embodiment
 
         # Compiling here rather than letting poke-env call the designer at battle start keeps the
         # rejection in this thread, where it can be reported. The battle then uses exactly the team
@@ -250,20 +268,21 @@ class PokEnv(gymnasium.Env):
         try:
             if embodiment is not None:
                 self.set_embodiment(embodiment)
-            packed_team = self.validate_embodiment()
+            packed_team = self._compile_embodiment()
         except ValueError as error:
             # A design an optimizer proposed is data, not a programming error: report it and let
             # whoever is searching decide what a rejected candidate is worth.
             self._embodiment_rejected = True
             self._started = True
-            return self._rejected_observation(), {"embodiment_rejected": True, "embodiment_rejection_reason": str(error)}
+            info = {"embodiment_rejected": True, "embodiment_rejection_reason": str(error)}
+            return self._rejected_observation(), info, np.array([True])
 
         self._embodiment_rejected = False
         self.env.set_learner_team(packed_team)
 
         observation, info = self.env.reset(seed=seed, options=options)
         self._started = True
-        return self._pad_observation(observation), {**info, "embodiment_rejected": False}
+        return self._pad_observation(observation), {**info, "embodiment_rejected": False}, np.array([False])
 
     def step(self, action=None, embodiment: dict | None = None):
         """Take one battle action.

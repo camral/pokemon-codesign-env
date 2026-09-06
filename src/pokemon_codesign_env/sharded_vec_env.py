@@ -48,7 +48,10 @@ def _reset_environment(arguments):
     maybe_options = {"options": options} if options else {}
     for attempt in range(reset_retries):
         try:
-            return env.reset(seed=seed, **maybe_options)
+            result = env.reset(seed=seed, **maybe_options)
+            # A codesign environment also returns its rejection flags. They already travel in the
+            # info, so the vector environment keeps Gymnasium's two-value reset.
+            return result[0], result[1]
         except TimeoutError:
             if attempt + 1 == reset_retries:
                 raise

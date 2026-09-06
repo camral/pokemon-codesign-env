@@ -115,10 +115,13 @@ def make(
     base_port: int | None = None,
     verbose: bool = False,
     **env_kwargs,
-) -> PokEnv:
-    """Create one codesign environment on a Showdown server it owns.
+) -> tuple[PokEnv, dict]:
+    """Create one codesign environment on a Showdown server it owns, and its base design.
 
     Closing the environment shuts the server down.
+
+    :returns: the environment and its `base_embodiment`, the design it starts from and the one a
+        reset falls back to when given none. Keeping it lets a caller return to a known state.
 
     :param is_eval_env: create an evaluation environment, which does not allow embodiment changes
         during evaluation.
@@ -149,7 +152,7 @@ def make(
         stack.close()
         raise
     env.server_context = stack
-    return env
+    return env, env.base_embodiment
 
 
 class ServerOwningVecEnv(VectorWrapper):
@@ -196,6 +199,8 @@ class ServerOwningVecEnv(VectorWrapper):
 
         Omitting the embodiment keeps whatever each environment already has, which is what the
         automatic reset after a finished episode relies on.
+
+        :returns: the observations, the infos, and `embodiment_rejected`, one flag per environment.
         """
         if embodiment is not None:
             if options is not None:
@@ -204,7 +209,7 @@ class ServerOwningVecEnv(VectorWrapper):
         observations, infos = self.env.reset(seed=seed, options=options)
         rejected = infos.get("embodiment_rejected")
         self.embodiment_rejected = np.zeros(self.num_envs, dtype=bool) if rejected is None else np.asarray(rejected, dtype=bool)
-        return observations, infos
+        return observations, infos, self.embodiment_rejected
 
     def step(self, actions):
         """Step every environment, refusing to battle while any design was rejected.
@@ -255,9 +260,11 @@ def make_vec(
     verbose: bool = False,
     **env_kwargs,
 ):
-    """Create `num_envs` codesign environments on a Showdown cluster they own.
+    """Create `num_envs` codesign environments on a Showdown cluster they own, and their base designs.
 
     Closing the vector environment shuts every launched server down.
+
+    :returns: the vector environment and one `base_embodiment` per environment, in order.
 
     :param num_envs: how many environments to run, packed `envs_per_worker` to a worker process.
     :param shards: how many Showdown servers to launch. Defaults to one per `envs_per_shard`
@@ -292,7 +299,9 @@ def make_vec(
         )
         if monitor:
             vector_env = RecordEpisodeStatistics(vector_env)
+        owning_env = ServerOwningVecEnv(vector_env, stack, cluster)
+        base_embodiments = owning_env.env.unwrapped.get_attr("base_embodiment")
     except BaseException:
         stack.close()
         raise
-    return ServerOwningVecEnv(vector_env, stack, cluster)
+    return owning_env, base_embodiments

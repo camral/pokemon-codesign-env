@@ -74,8 +74,8 @@ when you reset, and the environment launches and owns the Showdown server it nee
 ```python
 import Pokemon_codesign_env as pce
 
-env = pce.make("random")
-observation, info = env.reset(seed=0, embodiment=env.embodiment_space.sample())
+env, base_embodiment = pce.make("random")
+observation, info, embodiment_rejected = env.reset(seed=0, embodiment=env.embodiment_space.sample())
 env.close()
 ```
 

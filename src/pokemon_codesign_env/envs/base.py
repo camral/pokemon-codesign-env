@@ -137,11 +137,34 @@ class HumanVisibleSinglesEnv(SinglesEnv):
     def close(self, force: bool = True, wait: bool = True):
         super().close(force=force, wait=wait)
         for agent in (self.agent1, self.agent2):
-            close_task = asyncio.run_coroutine_threadsafe(agent.ps_client._stop_listening(), agent.ps_client.loop)
+            close_task = asyncio.run_coroutine_threadsafe(self._shutdown_client(agent.ps_client), agent.ps_client.loop)
             try:
                 close_task.result(timeout=10)
             except Exception:
                 close_task.cancel()
+
+    @staticmethod
+    async def _shutdown_client(ps_client) -> None:
+        """Stop a client's listener and settle its in-flight message handlers.
+
+        listen() dispatches each websocket message into its own task, so closing only the socket
+        leaves those handlers pending. When the event loop is then torn down they are garbage
+        collected mid-await, which poke-env reports as a wall of "Exception ignored in" traces at
+        the end of a large run. Cancelling them and awaiting the result lets the loop close with
+        nothing still running against it. Battles are already over by the time close is called, so
+        no result is lost by draining them.
+        """
+        await ps_client._stop_listening()
+        pending = [task for task in getattr(ps_client, "_active_tasks", ()) if not task.done()]
+        if not pending:
+            return
+        # A cancelled handler logs its own CancelledError at CRITICAL, so a client being discarded
+        # would still print one line per in-flight message. Its logs are of no further use once it
+        # is shutting down, so they are turned off for the drain.
+        ps_client.logger.disabled = True
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
 
 
 class BaselineOpponentEnv(SingleAgentWrapper):

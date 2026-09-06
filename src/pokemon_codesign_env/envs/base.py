@@ -1,5 +1,7 @@
 import asyncio
+import itertools
 import logging
+import os
 from collections import deque
 from pathlib import Path
 
@@ -8,6 +10,7 @@ from gymnasium import spaces
 from poke_env.battle import AbstractBattle
 from poke_env.data import GenData
 from poke_env.environment import SingleAgentWrapper, SinglesEnv
+from poke_env.ps_client.account_configuration import AccountConfiguration
 from poke_env.teambuilder import Teambuilder
 
 from pokemon_codesign_env.configs import FormatConfig, ObservationConfig
@@ -29,6 +32,17 @@ class _UnexpectedEffectWarningFilter(logging.Filter):
 
 
 logging.getLogger("poke-env").addFilter(_UnexpectedEffectWarningFilter())
+
+
+_ACCOUNT_INDICES = itertools.count()
+
+
+def _unique_account() -> AccountConfiguration:
+    """A Showdown login no other client alive on this machine can be using.
+
+    Showdown caps a username at 18 characters, which this stays well inside.
+    """
+    return AccountConfiguration(f"pce{os.getpid():x}-{next(_ACCOUNT_INDICES):x}", None)
 
 
 class ShowdownRandomTeam(Teambuilder):
@@ -154,6 +168,14 @@ class BaselineOpponentEnv(SingleAgentWrapper):
             opponent_team = self.make_random_opponent_team()
         self.opponent_team = opponent_team
 
+        # Showdown rejects a login whose name another live client already holds. poke-env's
+        # generated names are a random five character suffix, and 8192 environments need 16384 of
+        # them, which collides with about 90% probability; its non-random alternative counts from
+        # one inside each process, so 256 workers all propose the same names. A name only has to
+        # be unique among the clients currently connected, which the owning pid and a counter
+        # within that process guarantee outright.
+        env_kwargs.setdefault("account_configuration1", _unique_account())
+        env_kwargs.setdefault("account_configuration2", _unique_account())
         env_kwargs.setdefault("choose_on_teampreview", False)
         env_kwargs.setdefault("log_level", 40)
         env_kwargs.setdefault("open_timeout", None)

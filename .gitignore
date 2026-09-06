@@ -220,6 +220,3 @@ __marimo__/
 tests
 runs
 wandb
-
-# Per-shard Showdown runtimes, used when the system temp directory is on another filesystem
-.showdown-runtimes/

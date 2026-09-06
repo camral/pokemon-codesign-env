@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -72,25 +72,35 @@ def _link_or_copy(source: str, destination: str) -> None:
 RUNTIME_WORKERS = 16
 
 
-def _runtime_base_dir(showdown_path: Path) -> str:
-    """Return a scratch directory on the same filesystem as the Showdown checkout.
+def _same_filesystem(left, right) -> bool:
+    """Whether two paths live on one filesystem, which is what decides if os.link can work."""
+    return os.stat(left).st_dev == os.stat(right).st_dev
 
-    Every shard's runtime hardlinks the 106MB dist tree, and a hardlink cannot cross a filesystem.
-    A cluster node usually keeps the checkout on shared storage and /tmp on a local disk, where
-    os.link fails with EXDEV and _link_or_copy quietly falls back to copying instead: 128 shards
-    then move 13GB off shared storage before the first server starts, which is slow enough to look
-    like the servers are failing to boot. Staying on one filesystem keeps the hardlinks working.
+
+def _runtime_base_dir() -> str:
+    """Return the scratch directory the shard runtimes are built in."""
+    return "/tmp" if os.path.isdir("/tmp") else tempfile.gettempdir()
+
+
+@contextmanager
+def _shared_dist(showdown_path: Path, base_dir: str):
+    """Yield a dist tree the shard runtimes can hardlink from, copying it once if they cannot.
+
+    A runtime hardlinks the 106MB dist tree rather than copying it, which only works within one
+    filesystem. A cluster node usually keeps the checkout on shared storage and the scratch
+    directory on a local disk, so os.link fails with EXDEV and _link_or_copy quietly falls back to
+    copying: 128 shards then move 13GB off shared storage before the first server starts, slowly
+    enough to look like the servers are failing to boot. Copying dist once into the scratch
+    directory restores the hardlinks for every shard and leaves the servers reading from the local
+    disk rather than over the network.
     """
-    device = os.stat(showdown_path).st_dev
-    for candidate in ("/tmp", tempfile.gettempdir()):
-        try:
-            if os.stat(candidate).st_dev == device:
-                return candidate
-        except OSError:
-            continue
-    runtimes = showdown_path.parent / ".showdown-runtimes"
-    runtimes.mkdir(exist_ok=True)
-    return str(runtimes)
+    if _same_filesystem(showdown_path, base_dir):
+        yield showdown_path / "dist"
+        return
+    with tempfile.TemporaryDirectory(prefix="pokemon-showdown-dist-", dir=base_dir) as seed:
+        destination = Path(seed) / "dist"
+        shutil.copytree(showdown_path / "dist", destination)
+        yield destination
 
 
 def _default_startup_timeout(shards: int) -> float:
@@ -102,15 +112,17 @@ def _default_startup_timeout(shards: int) -> float:
     return max(120.0, 60.0 + 4.0 * shards)
 
 
-def _create_showdown_runtime(showdown_path: Path, port: int, base_dir: str | None = None) -> tuple[tempfile.TemporaryDirectory, Path]:
-    temporary_directory = tempfile.TemporaryDirectory(prefix=f"pokemon-showdown-{port}-", dir=base_dir or _runtime_base_dir(showdown_path))
+def _create_showdown_runtime(
+    showdown_path: Path, port: int, base_dir: str | None = None, dist_source: Path | None = None
+) -> tuple[tempfile.TemporaryDirectory, Path]:
+    temporary_directory = tempfile.TemporaryDirectory(prefix=f"pokemon-showdown-{port}-", dir=base_dir or _runtime_base_dir())
     runtime_path = Path(temporary_directory.name)
     for source in showdown_path.iterdir():
         destination = runtime_path / source.name
         if source.name in {"config", "databases"}:
             shutil.copytree(source, destination)
         elif source.name == "dist":
-            shutil.copytree(source, destination, copy_function=_link_or_copy)
+            shutil.copytree(dist_source or source, destination, copy_function=_link_or_copy)
         elif source.name == "logs":
             (destination / "repl").mkdir(parents=True)
         elif source.name == "pokemon-showdown":
@@ -153,20 +165,28 @@ def managed_showdown_cluster(enabled: bool, showdown_path: Path, cluster: Showdo
     # Building one runtime is filesystem work rather than computation, so the shards are prepared
     # together. Serially they cost about a third of a second each, which is a minute of dead time
     # on a 128 shard cluster before the first server is even asked to start.
-    base_dir = _runtime_base_dir(showdown_path)
+    base_dir = _runtime_base_dir()
     started = time.monotonic()
-    with ThreadPoolExecutor(max_workers=min(RUNTIME_WORKERS, len(missing))) as pool:
-        prepared = list(pool.map(lambda endpoint: _create_showdown_runtime(showdown_path, endpoint.port, base_dir), missing))
-    if verbose:
-        print(f"showdown_cluster=status_prepared shards={len(missing)} seconds={time.monotonic() - started:.1f} runtime_dir={base_dir}")
-    for endpoint, (temporary_directory, runtime_path) in zip(missing, prepared):
-        process = subprocess.Popen(
-            ["node", "--preserve-symlinks", str(runtime_path / "pokemon-showdown"), "start", "--skip-build", str(endpoint.port), "--no-security"],
-            cwd=runtime_path,
-            stdout=output, stderr=output, start_new_session=True,
-        )
-        processes.append((endpoint, process))
-        runtimes.append(temporary_directory)
+    with ExitStack() as preparation:
+        dist_source = preparation.enter_context(_shared_dist(showdown_path, base_dir))
+        shared = dist_source != showdown_path / "dist"
+        with ThreadPoolExecutor(max_workers=min(RUNTIME_WORKERS, len(missing))) as pool:
+            prepared = list(pool.map(
+                lambda endpoint: _create_showdown_runtime(showdown_path, endpoint.port, base_dir, dist_source), missing
+            ))
+        if verbose:
+            print(
+                f"showdown_cluster=status_prepared shards={len(missing)} seconds={time.monotonic() - started:.1f} "
+                f"runtime_dir={base_dir} shared_dist={shared}"
+            )
+        for endpoint, (temporary_directory, runtime_path) in zip(missing, prepared):
+            process = subprocess.Popen(
+                ["node", "--preserve-symlinks", str(runtime_path / "pokemon-showdown"), "start", "--skip-build", str(endpoint.port), "--no-security"],
+                cwd=runtime_path,
+                stdout=output, stderr=output, start_new_session=True,
+            )
+            processes.append((endpoint, process))
+            runtimes.append(temporary_directory)
     if startup_timeout is None:
         startup_timeout = _default_startup_timeout(len(missing))
     started = time.monotonic()

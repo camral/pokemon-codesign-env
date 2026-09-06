@@ -32,22 +32,38 @@ logging.getLogger("poke-env").addFilter(_UnexpectedEffectWarningFilter())
 
 
 class ShowdownRandomTeam(Teambuilder):
-    """Generate random teams with Showdown and validate them for another format."""
+    """Generate random teams with Showdown and validate them for another format.
 
-    def __init__(self, source_format: str, target_format: str, showdown_path: Path, max_attempts: int = 25):
+    Showdown draws each team from its own generator, so the opponent would vary from run to run
+    however the environment was seeded. Handing it a seed of ours instead makes the sequence of
+    opponents reproducible, which a battle needs as much as the designed team does.
+    """
+
+    def __init__(self, source_format: str, target_format: str, showdown_path: Path, max_attempts: int = 25, seed=None):
         super().__init__()
         self.source_format = source_format
         self.target_format = target_format
         self.showdown_path = showdown_path
         self.max_attempts = max_attempts
+        self.rng = np.random.default_rng(seed)
+
+    def seed(self, seed) -> None:
+        """Draw every following opponent team from a stream starting at this seed."""
+        self.rng = np.random.default_rng(seed)
+
+    def _next_seed(self) -> str:
+        """Showdown takes its seed as four 16-bit numbers."""
+        return ",".join(str(int(value)) for value in self.rng.integers(0, 65536, size=4))
 
     def yield_team(self) -> str:
         last_error = None
         for _ in range(self.max_attempts):
             try:
+                # A fresh seed per attempt, so a retry after a rejected team draws a different one
+                # rather than reproducing the same rejection.
                 result = subprocess.run(
-                    [str(self.showdown_path / "pokemon-showdown"), "generate-team", self.source_format], cwd=self.showdown_path,
-                    capture_output=True, check=False, text=True,
+                    [str(self.showdown_path / "pokemon-showdown"), "generate-team", self.source_format, self._next_seed()],
+                    cwd=self.showdown_path, capture_output=True, check=False, text=True,
                 )
                 if result.returncode:
                     message = result.stderr.strip() or result.stdout.strip()
@@ -120,6 +136,7 @@ class BaselineOpponentEnv(SingleAgentWrapper):
         self.observation_encoder = observation_encoder or HumanVisibleBattleEncoder.from_showdown(self.format_config, observation_config=observation_config)
         if opponent_team is None:
             opponent_team = self.make_random_opponent_team()
+        self.opponent_team = opponent_team
 
         env_kwargs.setdefault("choose_on_teampreview", False)
         env_kwargs.setdefault("log_level", 40)
@@ -140,6 +157,14 @@ class BaselineOpponentEnv(SingleAgentWrapper):
 
     def make_random_opponent_team(self) -> ShowdownRandomTeam:
         return ShowdownRandomTeam(self.opponent_team_format, self.format_config.format_id, self.format_config.showdown_path)
+
+    def seed_opponent_team(self, seed) -> None:
+        """Make the generated opponent teams reproducible, when they are generated at all.
+
+        A supplied opponent team, or one drawn from a pool, is left alone.
+        """
+        if isinstance(self.opponent_team, ShowdownRandomTeam):
+            self.opponent_team.seed(seed)
 
     def set_learner_team(self, team: str) -> None:
         """Use a new learner embodiment from the next battle onward."""

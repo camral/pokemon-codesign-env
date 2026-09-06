@@ -241,12 +241,14 @@ class PokEnv(gymnasium.Env):
         """
         super().reset(seed=seed)
         if seed is not None:
-            # This fixes the designed side of the battle: the designer resolves every random and
-            # defaulted attribute of the team, so the same seed and embodiment give the same team.
-            # It does not make the episode reproducible. The opponent's team comes from Showdown's
-            # own generator and the battle's rolls are the server's, and neither is seeded here.
+            # Both sides of the battle are drawn from this seed: the designer resolves every random
+            # and defaulted attribute of the designed team, and the opponent's team comes from
+            # Showdown's generator, which takes a seed of ours. The battle's own rolls are the
+            # server's and are not seeded here, so a seed fixes the teams rather than the outcome.
             self.team_designer.rng = np.random.default_rng(seed)
             self.embodiment_space.seed(seed)
+            if hasattr(self.env, "seed_opponent_team"):
+                self.env.seed_opponent_team(seed)
 
         # A vector environment cannot pass the embodiment as an argument, because the vector reset
         # it wraps takes none, so it arrives in the options instead and is removed before the rest

@@ -228,6 +228,24 @@ Some codesign environments allow the embodiment to change between transitions. T
 the team is fixed once a battle begins, so `PokEnv.SUPPORTS_TRANSITION_EMBODIMENT` is `False` and
 `step(action, embodiment=...)` warns and ignores the embodiment. Change a design at `reset`.
 
+## Seeding
+
+`reset(seed=...)` fixes both teams. The designer resolves every random and defaulted attribute of
+the designed team from it, and the opponent's team comes from Showdown's generator, which is given
+a seed drawn from the same stream. Two runs with the same seed therefore start from the same
+position:
+
+```python
+observation, info, rejected = env.reset(seed=42, embodiment=design)
+```
+
+It seeds a *stream* rather than freezing a team: consecutive battles in one run still face
+different opponents, and the whole sequence repeats when the seed does.
+
+What a seed does not fix is the battle itself. Damage rolls, critical hits and speed ties are the
+Showdown server's own, and are not reachable from here, so a seed reproduces the matchup rather
+than the outcome.
+
 ## Servers
 
 `make` and `make_vec` launch the Pokemon Showdown servers their environments need and shut them

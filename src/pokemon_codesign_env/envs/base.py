@@ -142,6 +142,15 @@ class BaselineOpponentEnv(SingleAgentWrapper):
         env_kwargs.setdefault("log_level", 40)
         env_kwargs.setdefault("open_timeout", None)
         env_kwargs.setdefault("strict", False)
+        # poke-env pings every 20 seconds and closes the battle if a pong takes another 20, which
+        # suits a public server reached over a network. These servers are local and owned by this
+        # process, and past a few thousand environments both ends are oversubscribed: a shard is
+        # single-threaded and a worker packs many battles onto one event loop. A pong then arrives
+        # late routinely and tears down a healthy battle with "keepalive ping timeout". A server
+        # that has genuinely died is still caught, by the vector environment's step timeout and
+        # worker restart rather than by a keepalive.
+        env_kwargs.setdefault("ping_interval", 60.0)
+        env_kwargs.setdefault("ping_timeout", 300.0)
         battle_env = HumanVisibleSinglesEnv(observation_encoder=self.observation_encoder, battle_format=battle_format, team=team, **env_kwargs)
         battle_env.agent2.update_team(opponent_team)
 

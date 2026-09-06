@@ -4,7 +4,7 @@
   <img src="docs/figures/codesign.png" alt="Pokémon Showdown as a co-design benchmark: an embodiment designer feeding the team design space and a control policy feeding the battle MDP, both composing your side of a single Pokémon Showdown battle that returns one score to both" width="100%">
 </p>
 
-**Pokémon Showdown** - A turn-based Pokémon battle simulator. This is based off [Pokémon Showdown](https://github.com/smogon/Pokemon-showdown) and [Poke-Env](https://github.com/hsahovic/poke-env).
+**Pokémon Showdown** - A turn-based Pokémon battle simulator. This is based off [Pokémon Showdown](https://github.com/smogon/pokemon-showdown) and [Poke-Env](https://github.com/hsahovic/poke-env).
 In this problem setup, the agent is tasked with designing a Pokémon team (embodiment) and learning a battle strategy (control policy) to maximize its win rate against various opponents.
 
 Two searches run against each other. An **embodiment designer** searches the design space &Theta; for a
@@ -33,7 +33,6 @@ Potential environment setups:
  - Randomized battle rules with fixed opponent teams.
  - Randomized opponent teams and battle rules.
  - Curated opponent teams and battle rules, designed to test specific co-design strategies.
- - Self-play, where the agent competes against its own previous versions to iteratively improve both its team design and battle strategy.
  - Multi-agent co-design, where multiple agents design their own teams and strategies, competing against each other in a shared environment.
 
 ## Installation
@@ -43,7 +42,7 @@ initialize the submodule and install its Node.js dependencies:
 
 ```bash
 git submodule update --init --recursive
-npm --prefix Pokemon-showdown ci
+npm --prefix pokemon-showdown ci
 ```
 
 The bundled Pokémon Showdown revision requires Node.js 22 or newer. Install this Python project and
@@ -57,7 +56,7 @@ Finally, install and build the packaged Pokémon League formats in the bundled
 Showdown server:
 
 ```bash
-Pokemon-codesign-install-showdown Pokemon-showdown
+pokemon-codesign-install-showdown pokemon-showdown
 ```
 
 This uses Showdown's supported `config/custom-formats.ts` extension point and
@@ -94,14 +93,7 @@ rollout. One masked PPO controller learns continuously across these embodiment
 populations using `RandomPlayerEnv` by default. Each baseline environment gives
 the opponent a newly generated random team for every battle.
 
-Start the bundled Pokémon Showdown server in another terminal:
-
-```bash
-cd Pokemon-showdown
-node Pokemon-showdown start --no-security
-```
-
-Then run the small experiment:
+Run the small experiment:
 
 ```bash
 python examples/train_sb3_ngopt.py \
@@ -110,17 +102,17 @@ python examples/train_sb3_ngopt.py \
   --verbose
 ```
 
-Add `--launch-server` to start the bundled local Showdown server automatically.
-The script reuses an existing server on port 8000 when present; otherwise it
-starts one, waits until it is ready, and stops only that server when it exits.
+There is no server to start. The environments launch the Pokémon Showdown servers
+they need, on ports claimed from the operating system, and stop them when they are
+closed. Concurrent runs therefore never collide, and nothing is left running
+afterwards.
 
 All training examples use the CPU and one in-process environment by default.
 Select any PyTorch device with `--device`, including a specific GPU:
 
 ```bash
 python examples/train_sb3_ngopt.py --device cuda
-python examples/train_Pokemon_league_sb3_ngopt.py --device cuda:6
-python examples/train_self_play_sb3_ngopt.py --device mps
+python examples/train_pokemon_league_sb3_ngopt.py --device cuda:6
 ```
 
 Use `--device auto` to let SB3 select CUDA when available and otherwise use the
@@ -139,7 +131,6 @@ python examples/train_sb3_ngopt.py \
   --batch-size 1024 \
   --profile-gpu \
   --gpu-log-interval 4096 \
-  --launch-server \
   --verbose
 ```
 
@@ -169,15 +160,14 @@ python examples/train_sb3_ngopt.py \
   --wandb-entity YOUR_ENTITY \
   --wandb-name gpu-1024-envs \
   --wandb-mode online \
-  --launch-server \
   --verbose
 ```
 
 Each sharded rollout process owns up to `--envs-per-worker` environments and
-steps their I/O-bound battles concurrently. `--showdown-shards S` routes those
-environments round-robin over `S` consecutive ports beginning at
-`--showdown-base-port`. `--launch-server` builds Showdown once, starts only the
-missing shards, and stops only the shards it started. Random opponent teams are
+steps their I/O-bound battles concurrently. `--showdown-shards S` launches `S`
+Showdown servers and routes the environments round-robin over them; leaving it at
+0 uses one server per 32 environments. The servers are started and stopped by the
+environments themselves. Random opponent teams are
 generated into one reusable pool so resets do not launch a Node process per
 battle. Start below the machine's limits and increase environments, rollout
 workers, and server shards while watching transitions per second and P95
@@ -194,9 +184,7 @@ reported to the optimizer, new teams are sampled and batch-validated, and each
 environment is reset onto its replacement team before the next rollout.
 The total number of NGOpt evaluations is exactly
 `num_envs * ceil(ppo_timesteps / (num_envs * rollout_steps))`; population size
-and parallelism both come directly from `--num-envs`. The self-play example
-keeps frozen opponent inference on CPU by default; use `--opponent-device` to
-change it.
+and parallelism both come directly from `--num-envs`.
 
 The installed PyTorch build must include support for the requested accelerator.
 Before a long run, verify the selected CUDA index with:
@@ -208,12 +196,11 @@ python -c 'import torch; print(torch.cuda.is_available(), torch.cuda.device_coun
 Enable W&B evaluation logging by supplying a project:
 
 ```bash
-python examples/train_Pokemon_league_sb3_ngopt.py \
+python examples/train_pokemon_league_sb3_ngopt.py \
   --generation 4 \
   --wandb-project Pokemon-codesign \
   --wandb-entity YOUR_ENTITY \
-  --wandb-group gen4-league \
-  --launch-server
+  --wandb-group gen4-league
 ```
 
 W&B tracks the full experiment: PPO rollout and training statistics, NGOpt
@@ -280,14 +267,13 @@ The final recommended team and jointly trained PPO controller are written to
 
 ## Pokémon League experiment
 
-`examples/train_Pokemon_league_sb3_ngopt.py` applies the same rollout-population
+`examples/train_pokemon_league_sb3_ngopt.py` applies the same rollout-population
 SB3 and NGOpt setup to a complete five-battle League episode:
 
 ```bash
-python examples/train_Pokemon_league_sb3_ngopt.py \
+python examples/train_pokemon_league_sb3_ngopt.py \
   --generation 4 \
   --difficulty 0 \
-  --launch-server \
   --verbose
 ```
 
@@ -299,7 +285,7 @@ server running, open `http://localhost:8000`, and use the same generation and
 difficulty that were used for training:
 
 ```bash
-python examples/train_Pokemon_league_sb3_ngopt.py \
+python examples/train_pokemon_league_sb3_ngopt.py \
   --generation 4 \
   --difficulty 0 \  
   --watch \
@@ -307,26 +293,8 @@ python examples/train_Pokemon_league_sb3_ngopt.py \
 ```
 
 The script prints a new direct battle URL for each League trainer. Use
-`--watch-games` for multiple League attempts, or add `--launch-server` to
-manage the local server automatically. Replays are saved under
-`runs/Pokemon_league/replays/`.
-
-## Self-play experiment
-
-`examples/train_self_play_sb3_ngopt.py` performs iterative frozen-policy
-self-play. The first round bootstraps against `RandomPlayer`; each later round
-runs rollout-population NGOpt and trains one PPO challenger against the previous
-round's fixed champion team and controller.
-
-```bash
-python examples/train_self_play_sb3_ngopt.py \
-  --self-play-rounds 3 \
-  --launch-server \
-  --verbose
-```
-
-Round snapshots are saved under `runs/self_play/round_N/`, and the latest
-champion is also saved as `best_controller.zip` and `best_team.json`.
+`--watch-games` for multiple League attempts. Replays are saved under
+`runs/pokemon_league/replays/`.
 
 To watch slowed exhibition games with the saved best controller, leave the
 Showdown server running, open `http://localhost:8000`, and run:

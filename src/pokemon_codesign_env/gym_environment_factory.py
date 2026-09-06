@@ -12,7 +12,7 @@ from pokemon_codesign_env.configs import TeamSearchConfig, FormatConfig, Observa
 from pokemon_codesign_env.envs import MaxBasePowerPlayerEnv,PokemonLeagueEnv,RandomPlayerEnv,SimpleHeuristicsPlayerEnv,get_pokemon_league
 from pokemon_codesign_env.observations import HumanVisibleBattleEncoder
 from pokemon_codesign_env.spaces import TeamDesignSpace
-from pokemon_codesign_env.team_designer import TeamDesigner
+from pokemon_codesign_env.team_designer import BatchedTeamDesigner, TeamDesigner
 from pokemon_codesign_env.team_pool import validate_team_batch
 
 # The presets differ by opponent policy, not by format restriction: each is a Custom Game of its
@@ -184,21 +184,23 @@ class PokEnv(gymnasium.Env):
         The environment's own embodiment is left untouched, so this can be used to pre-screen
         candidates without disturbing an episode in progress.
         """
-        designer = TeamDesigner(self.embodiment_config, validate_teams=False)
         reasons: list[str | None] = [None] * len(embodiments)
-        compiled, positions = [], []
+        designs, positions = [], []
         for position, embodiment in enumerate(embodiments):
             try:
                 values = embodiment if isinstance(embodiment, dict) else self.embodiment_space.from_index(embodiment)
                 if not self.embodiment_space.contains(values):
                     raise ValueError("embodiment is not a member of embodiment_space")
-                designer.set_optimizable_parameter_values(values)
-                compiled.append(designer.yield_team())
+                designs.append(values)
                 positions.append(position)
             except ValueError as error:
                 reasons[position] = str(error)
 
-        if compiled:
+        if designs:
+            # One reusable compiler for the batch, seeded per design so the check is repeatable.
+            compiled = BatchedTeamDesigner.serialize_parameter_values(
+                self.embodiment_config, designs, list(range(len(designs)))
+            )
             problems = validate_team_batch(self.format_config.showdown_path, self.format_config.format_id, compiled)
             for position, team_problems in zip(positions, problems, strict=True):
                 if team_problems is not None:
@@ -318,7 +320,9 @@ class PokEnv(gymnasium.Env):
                 f"0-{self.natural_action_space_size - 1}"
             )
 
-        observation, reward, terminated, truncated, info = self.env.step(action)
+        # poke-env reads the action as a NumPy scalar when deciding between a plain move and one
+        # that mega evolves or terastallizes.
+        observation, reward, terminated, truncated, info = self.env.step(np.int64(action))
         # Gymnasium requires a reset once an episode is over, which PokEnv enforces itself because
         # it is not wrapped in OrderEnforcing.
         self._started = not (terminated or truncated)

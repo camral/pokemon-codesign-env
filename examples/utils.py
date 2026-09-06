@@ -40,12 +40,13 @@ from pokemon_codesign_env.configs import (
     TeamSearchConfig,
 )
 from pokemon_codesign_env.envs import MaxBasePowerPlayerEnv, RandomPlayerEnv, SimpleHeuristicsPlayerEnv
+import pokemon_codesign_env as pce
 from pokemon_codesign_env.envs.base import BaselineOpponentEnv
-from pokemon_codesign_env.evaluation import evaluate_isolated
+from pokemon_codesign_env.gym_environment_factory import OPPONENTS
 from pokemon_codesign_env.observations import HumanVisibleBattleEncoder
-from pokemon_codesign_env.scaling import ShowdownClusterConfig, ShowdownEndpoint, managed_showdown_cluster
 from pokemon_codesign_env.sharded_vec_env import ShardedVecEnv
 from pokemon_codesign_env.team_pool import RandomTeamPool, validate_team_batch
+from pokemon_codesign_env.spaces import TeamDesignSpace
 from pokemon_codesign_env.team_designer import BatchedTeamDesigner, TeamDesigner
 
 TEAM_SIZE = 6
@@ -295,53 +296,54 @@ class PeriodicEvaluationCallback(BaseCallback):
         self.last_evaluation_rollout = completed_rollouts
 
 
-def sample_team_population(optimizer, search_config: TeamSearchConfig, population_size: int, seed: int):
-    """Ask NGOpt for one valid packed team per environment."""
-    species_values, nature_values = get_ngopt_parameter_choices(search_config)
-    candidates = []
-    parameters = []
-    teams = []
-    attempts = 0
-    while len(teams) < population_size:
-        needed = population_size - len(teams)
-        proposed_candidates = [optimizer.ask() for _ in range(needed)]
-        proposed_parameters = [decode_ngopt_parameter_values(candidate.value, species_values, nature_values) for candidate in proposed_candidates]
-        unique_proposals = [
-            (candidate, values) for candidate, values in zip(proposed_candidates, proposed_parameters, strict=True)
-            if team_species_are_trackable(values, search_config.format.generation)
-        ]
-        for candidate, values in zip(proposed_candidates, proposed_parameters, strict=True):
-            if not team_species_are_trackable(values, search_config.format.generation):
+def sample_team_population(optimizer, embodiment_space, population_size: int):
+    """Ask NGOpt for one design per environment, telling it about the ones it cannot build.
+
+    The design space decides what a design is: `from_index` decodes a point of `flat_space` or
+    raises, and `validate_embodiments` asks Showdown whether the result can actually be built.
+    A candidate that fails either is scored as invalid so the optimizer learns to avoid it.
+    """
+    candidates, embodiments = [], []
+    while len(embodiments) < population_size:
+        proposed = [optimizer.ask() for _ in range(population_size - len(embodiments))]
+        decoded, kept = [], []
+        for candidate in proposed:
+            try:
+                decoded.append(embodiment_space.from_index(candidate.value))
+                kept.append(candidate)
+            except ValueError:
                 optimizer.tell(candidate, INVALID_CANDIDATE_LOSS)
-        if not unique_proposals:
-            attempts += needed
+        if not kept:
             continue
-        proposed_candidates, proposed_parameters = map(list, zip(*unique_proposals, strict=True))
-        proposed_teams = BatchedTeamDesigner.serialize_parameter_values(
-            search_config, proposed_parameters, [seed + attempts + index for index in range(len(proposed_parameters))]
-        )
-        errors = validate_team_batch(search_config.format.showdown_path, search_config.format.format_id, proposed_teams)
-        for candidate, values, team, error in zip(proposed_candidates, proposed_parameters, proposed_teams, errors, strict=True):
-            if error is None:
+        for candidate, embodiment, reason in zip(kept, decoded, _screen(embodiment_space, decoded), strict=True):
+            if reason is None:
                 candidates.append(candidate)
-                parameters.append(values)
-                teams.append(team)
+                embodiments.append(embodiment)
             else:
                 optimizer.tell(candidate, INVALID_CANDIDATE_LOSS)
-        attempts += needed
-    return candidates, parameters, teams
+    return candidates, embodiments
+
+
+def _screen(embodiment_space, embodiments) -> list:
+    """Ask Showdown which of these designs it can build, in one batch."""
+    format_config = embodiment_space.search_config.format
+    teams = BatchedTeamDesigner.serialize_parameter_values(
+        embodiment_space.search_config, embodiments, list(range(len(embodiments)))
+    )
+    return [None if problems is None else "; ".join(problems)
+            for problems in validate_team_batch(format_config.showdown_path, format_config.format_id, teams)]
 
 
 class RolloutTeamOptimizerCallback(BaseCallback):
     """Score one NGOpt embodiment per environment and replace it every rollout."""
 
     def __init__(
-        self, optimizer, search_config: TeamSearchConfig, candidates: list, parameters: list[dict], seed: int, total_timesteps: int,
+        self, optimizer, embodiment_space, candidates: list, parameters: list[dict], seed: int, total_timesteps: int,
         wandb_logger=None, label: str = "codesign", round_index: int | None = None,
     ):
         super().__init__()
         self.optimizer = optimizer
-        self.search_config = search_config
+        self.embodiment_space = embodiment_space
         self.candidates = candidates
         self.parameters = parameters
         self.seed = seed
@@ -375,11 +377,12 @@ class RolloutTeamOptimizerCallback(BaseCallback):
         self.rollout_index += 1
         if self.num_timesteps >= self.total_timesteps:
             return
-        self.candidates, self.parameters, teams = sample_team_population(
-            self.optimizer, self.search_config, self.model.n_envs, self.seed + self.rollout_index * self.model.n_envs
+        self.candidates, self.parameters = sample_team_population(
+            self.optimizer, self.embodiment_space, self.model.n_envs
         )
-        for environment_index, team in enumerate(teams):
-            self.training_env.env_method("set_learner_team", team, indices=environment_index)
+        # The designs reach the environments through reset, which is where a codesign environment
+        # takes one, rather than by installing compiled teams behind its back.
+        self.training_env.set_embodiment(self.parameters)
         self.model._last_obs = self.training_env.reset()
         self.model._last_episode_starts = np.ones(self.model.n_envs, dtype=bool)
 
@@ -402,11 +405,10 @@ def add_compute_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--progress", action="store_true", help="Display tqdm training progress with recent and average environment FPS.")
     parser.add_argument("--gpu-log-interval", type=int, default=1_000)
     parser.add_argument("--telemetry-log-interval", type=int, default=1_000)
-    parser.add_argument("--showdown-host", default=SHOWDOWN_HOST)
-    parser.add_argument("--showdown-base-port", type=int, default=SHOWDOWN_PORT)
-    parser.add_argument("--showdown-shards", type=int, default=1)
-    parser.add_argument("--random-team-pool-size", type=int, default=0)
-    parser.add_argument("--learner-team-pool-size", type=int, default=0)
+    parser.add_argument(
+        "--showdown-shards", type=int, default=0,
+        help="Showdown servers to launch, or 0 to use one per 32 environments.",
+    )
     parser.add_argument("--wandb-project")
     parser.add_argument("--wandb-entity")
     parser.add_argument("--wandb-group")
@@ -416,12 +418,12 @@ def add_compute_arguments(parser: argparse.ArgumentParser) -> None:
 
 def validate_compute_arguments(args: argparse.Namespace) -> None:
     """Reject invalid parallelism and PPO buffer configurations early."""
-    defaults = {"envs_per_worker": 32, "telemetry_log_interval": 1_000, "showdown_shards": 1}
+    defaults = {"envs_per_worker": 32, "telemetry_log_interval": 1_000}
     for name in (
         "num_envs", "envs_per_worker", "reset_retries", "challenge_timeout", "step_timeout", "evaluation_timeout", "rollout_steps", "batch_size",
         "gpu_log_interval",
         "telemetry_log_interval",
-        "showdown_shards", "ppo_timesteps", "evaluation_episodes",
+        "ppo_timesteps", "evaluation_episodes",
     ):
         if getattr(args, name, defaults.get(name, 1)) < 1:
             raise ValueError(f"--{name.replace('_', '-')} must be at least 1")
@@ -434,14 +436,10 @@ def validate_compute_arguments(args: argparse.Namespace) -> None:
         raise ValueError(f"--batch-size ({args.batch_size}) must divide the rollout buffer size ({rollout_size})")
     if getattr(args, "ppo_timesteps", rollout_size) < rollout_size:
         raise ValueError(f"--ppo-timesteps must be at least one complete rollout ({rollout_size} = num_envs x rollout_steps)")
-    for name in ("random_team_pool_size", "learner_team_pool_size"):
-        if getattr(args, name, 0) < 0:
-            raise ValueError(f"--{name.replace('_', '-')} cannot be negative")
     if getattr(args, "evaluation_interval_rollouts", 0) < 0:
         raise ValueError("--evaluation-interval-rollouts cannot be negative")
-    ShowdownClusterConfig(
-        getattr(args, "showdown_host", SHOWDOWN_HOST), getattr(args, "showdown_base_port", SHOWDOWN_PORT), getattr(args, "showdown_shards", 1)
-    )
+    if getattr(args, "showdown_shards", 0) < 0:
+        raise ValueError("--showdown-shards cannot be negative")
 
 
 def rollout_population_evaluations(total_timesteps: int, num_envs: int, rollout_steps: int) -> int:
@@ -465,33 +463,61 @@ def validate_device(device_name: str) -> None:
         raise RuntimeError("MPS was requested but is unavailable")
 
 
-def make_team(search_config, parameter_values: dict, seed: int, validate_teams: bool = True) -> "RetryingTeamDesigner":
-    """Build one independently seeded copy of an optimized team."""
-    team = RetryingTeamDesigner(search_config, validate_teams=validate_teams)
-    team.set_optimizable_parameter_values(parameter_values)
-    team.rng = np.random.default_rng(seed)
-    return team
-
-
 class SB3VecEnvAdapter(VecEnv):
-    """Present a Gymnasium vector environment through the interface Stable-Baselines3 expects.
+    """Present a codesign vector environment through the interface Stable-Baselines3 expects.
 
-    The benchmark speaks the Gymnasium vector API: reset returns `(observations, infos)`, step
-    returns terminations and truncations separately, and infos are one dictionary of arrays.
-    Stable-Baselines3 wants observations alone, a single `dones`, and a list of dictionaries. The
-    translation lives here rather than in the library, so the benchmark does not depend on any one
-    training framework.
+    The benchmark speaks the codesign API: reset takes an embodiment and returns observations,
+    infos and one rejection flag per environment, and step returns terminations and truncations
+    separately with infos as one dictionary of arrays. Stable-Baselines3 wants observations alone,
+    a single `dones`, and a list of dictionaries. The translation lives here so the benchmark does
+    not depend on any one training framework.
     """
 
     def __init__(self, env):
-        self.env = DictInfoToList(env)
+        self.env = env
         self._actions = None
+        self._pending_embodiment = None
         super().__init__(env.num_envs, env.single_observation_space, env.single_action_space)
+
+    def set_embodiment(self, embodiment) -> None:
+        """Battle these designs from the next reset onward, one per environment."""
+        self._pending_embodiment = embodiment
+
+    @property
+    def embodiment_rejected(self):
+        return self.env.embodiment_rejected
+
+    def _as_list(self, vector_infos: dict) -> list[dict]:
+        """Split Gymnasium's vectorized infos into one dictionary per environment.
+
+        Each key holds one value per environment beside a `_key` mask saying which environments
+        actually reported it. A nested dictionary, such as the info of a finished episode, is
+        split the same way.
+        """
+        infos = [{} for _ in range(self.num_envs)]
+        self._scatter(vector_infos, infos)
+        return infos
+
+    def _scatter(self, vector_infos: dict, infos: list[dict]) -> None:
+        for key, values in vector_infos.items():
+            if key.startswith("_"):
+                continue
+            present = vector_infos.get(f"_{key}")
+            if isinstance(values, dict):
+                nested = [{} for _ in range(self.num_envs)]
+                self._scatter(values, nested)
+                values = nested
+            for index in range(self.num_envs):
+                if present is None or present[index]:
+                    infos[index][key] = values[index]
 
     def reset(self):
         seeds = [seed for seed in self._seeds if seed is not None]
-        observations, infos = self.env.reset(seed=seeds[0] if seeds else None)
-        self.reset_infos = list(infos)
+        observations, vector_infos, _rejected = self.env.reset(
+            seed=seeds[0] if seeds else None, embodiment=self._pending_embodiment
+        )
+        self._pending_embodiment = None
+        self.reset_infos = self._as_list(vector_infos)
         self._reset_seeds()
         self._reset_options()
         return observations
@@ -500,9 +526,9 @@ class SB3VecEnvAdapter(VecEnv):
         self._actions = actions
 
     def step_wait(self):
-        observations, rewards, terminations, truncations, infos = self.env.step(self._actions)
+        observations, rewards, terminations, truncations, vector_infos = self.env.step(self._actions)
         dones = np.logical_or(terminations, truncations)
-        infos = list(infos)
+        infos = self._as_list(vector_infos)
         for index, info in enumerate(infos):
             info["TimeLimit.truncated"] = bool(truncations[index] and not terminations[index])
             # Gymnasium reports the observation that ended an episode as final_obs under same-step
@@ -547,14 +573,6 @@ def make_vector_env(
     vector_class = DummyVecEnv if vec_env == "dummy" else SubprocVecEnv
     kwargs = {} if vec_env == "dummy" else {"start_method": "spawn"}
     return VecMonitor(vector_class(env_factories, **kwargs))
-
-
-def showdown_cluster(args: argparse.Namespace) -> ShowdownClusterConfig:
-    return ShowdownClusterConfig(args.showdown_host, args.showdown_base_port, args.showdown_shards)
-
-
-def server_configuration_for(args: argparse.Namespace, environment_index: int):
-    return showdown_cluster(args).endpoint_for(environment_index).server_configuration
 
 
 def make_training_callback(
@@ -713,61 +731,6 @@ def wandb_config(args: argparse.Namespace) -> dict:
     return {name: str(value) if isinstance(value, Path) else value for name, value in vars(args).items()}
 
 
-def is_server_running(host: str = SHOWDOWN_HOST, port: int = SHOWDOWN_PORT) -> bool:
-    """Return whether something is accepting connections at the server address."""
-    try:
-        with socket.create_connection((host, port), timeout=0.2):
-            return True
-    except OSError:
-        return False
-
-
-@contextmanager
-def managed_showdown_server(enabled: bool, showdown_path: Path, verbose: bool = False):
-    """Start and stop a local Showdown server when requested and necessary."""
-    if not enabled:
-        yield
-        return
-
-    if is_server_running():
-        if verbose:
-            print(f"showdown_server=status_existing port={SHOWDOWN_PORT}")
-        yield
-        return
-
-    showdown_path = showdown_path.resolve()
-    executable = showdown_path / "pokemon-showdown"
-    if not executable.is_file():
-        raise FileNotFoundError(f"Pokemon Showdown launcher not found: {executable}")
-
-    output = None if verbose else subprocess.DEVNULL
-    process = subprocess.Popen(["node", str(executable), "start", "--no-security"], cwd=showdown_path, stdout=output, stderr=output, start_new_session=True)
-    deadline = time.monotonic() + SERVER_STARTUP_TIMEOUT
-
-    try:
-        while not is_server_running():
-            return_code = process.poll()
-            if return_code is not None:
-                raise RuntimeError(f"Pokemon Showdown exited during startup with code {return_code}.")
-            if time.monotonic() >= deadline:
-                raise TimeoutError(f"Pokemon Showdown did not open port {SHOWDOWN_PORT} within {SERVER_STARTUP_TIMEOUT:g} seconds.")
-            time.sleep(0.1)
-
-        if verbose:
-            print(f"showdown_server=status_started pid={process.pid} port={SHOWDOWN_PORT}")
-        yield
-    finally:
-        if process.poll() is None:
-            os.killpg(process.pid, signal.SIGTERM)
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
-                process.wait()
-        if verbose:
-            print("showdown_server=status_stopped")
-
-
 class RetryingTeamDesigner(TeamDesigner):
     """Retry random team details that Showdown rejects."""
 
@@ -858,111 +821,94 @@ def make_search_config(format_config: FormatConfig) -> TeamSearchConfig:
     )
 
 
-@lru_cache(maxsize=None)
-def get_ngopt_parameter_choices(search_config: TeamSearchConfig) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """Return the ordered lookup tables used by the integer-ID optimizer representation."""
-    designer = TeamDesigner(search_config)
-    parameter_space = designer.get_optimizable_parameter_space()["pokemon_0"]
-    return tuple(parameter_space["species"]["values"]), tuple(parameter_space["nature"]["values"])
+def make_ngopt_parameterization(embodiment_space):
+    """Search the design space in the flat representation it already provides."""
+    nvec = embodiment_space.flat_space.nvec
+    return ng.p.Array(
+        shape=(len(nvec),), lower=np.zeros(len(nvec), dtype=np.int64), upper=np.asarray(nvec, dtype=np.int64) - 1
+    ).set_integer_casting()
 
 
-def make_ngopt_parameterization(search_config: TeamSearchConfig):
-    """Translate this example's categorical embodiment space to compact integer IDs."""
-    species_values, nature_values = get_ngopt_parameter_choices(search_config)
-    lower = np.zeros(search_config.team_size * 2, dtype=np.int64)
-    upper = np.asarray([len(species_values) - 1] * search_config.team_size + [len(nature_values) - 1] * search_config.team_size, dtype=np.int64)
-
-    return ng.p.Array(shape=(search_config.team_size * 2,), lower=lower, upper=upper).set_integer_casting()
-
-
-def decode_ngopt_parameter_values(parameter_values: np.ndarray, species_values: tuple[str, ...], nature_values: tuple[str, ...]) -> dict:
-    """Decode the flat integer-ID array into TeamDesigner parameters."""
-    team_size = len(parameter_values) // 2
-    if parameter_values.shape != (team_size * 2,):
-        raise ValueError("Nevergrad team parameter values must be a flat array containing equally many species and nature IDs")
-    return {
-        f"pokemon_{index}": {"species": species_values[int(parameter_values[index])], "nature": nature_values[int(parameter_values[team_size + index])]}
-        for index in range(team_size)
-    }
-
-
-def team_species_are_trackable(parameter_values: dict, generation: int) -> bool:
-    """Return whether poke-env's fuzzy identifier matching can distinguish every Pokemon."""
-    pokedex = GenData.from_gen(generation).pokedex
-    species = [pokemon["species"] for pokemon in parameter_values.values()]
-    base_species = [to_id_str(pokedex.get(to_id_str(name), {}).get("baseSpecies", name)) for name in species]
-    for index, base_name in enumerate(base_species):
-        for other_index, other_name in enumerate(species):
-            if index != other_index and (base_name == to_id_str(other_name) or base_name in {to_id_str(part) for part in other_name.split("-")}):
-                return False
-    return True
+# pce.make selects the opponent by name; the examples still choose by class.
+OPPONENT_NAMES = {environment_class: name for name, environment_class in OPPONENTS.items()}
 
 
 def make_control_env(
     environment_class: type[BaselineOpponentEnv],
-    learner_team: TeamDesigner,
-    observation_encoder: HumanVisibleBattleEncoder,
+    learner_config: TeamSearchConfig,
+    args: argparse.Namespace,
     save_replays: bool | str = False,
     account_configuration1: AccountConfiguration | None = None,
     account_configuration2: AccountConfiguration | None = None,
     **env_kwargs,
 ):
-    """Create the selected baseline environment for one learner team."""
-    return Monitor(environment_class(
-        team=learner_team,
-        observation_encoder=observation_encoder,
+    """Create one codesign environment, which launches and owns the Showdown server it needs."""
+    env, base_embodiment = pce.make(
+        opponent=OPPONENT_NAMES[environment_class],
+        format_config=learner_config.format,
+        embodiment_config=learner_config,
+        challenge_timeout=args.challenge_timeout,
+        save_replays=save_replays,
         account_configuration1=account_configuration1,
         account_configuration2=account_configuration2,
-        save_replays=save_replays,
         **env_kwargs,
-    ))
+    )
+    return Monitor(env), base_embodiment
 
 
 def make_control_training_env(
     environment_class: type[BaselineOpponentEnv],
     learner_config: TeamSearchConfig,
-    parameter_values: dict,
-    observation_encoder: HumanVisibleBattleEncoder,
     args: argparse.Namespace,
-    seed: int,
-    learner_team_pool: RandomTeamPool | None = None,
-    opponent_team_pool: RandomTeamPool | None = None,
     num_envs: int | None = None,
-    vec_env: str | None = None,
     save_replays: bool | str = False,
     account_configuration1: AccountConfiguration | None = None,
     account_configuration2: AccountConfiguration | None = None,
-    learner_teams: list[str] | None = None,
+    **env_kwargs,
 ):
-    """Create independently seeded vector workers for PPO data collection."""
+    """Create the vector environment PPO collects from, and one base design per environment.
+
+    The environments launch and own the Showdown servers they battle on, so nothing here has to
+    start a server or be told where one is running.
+    """
     num_envs = num_envs or args.num_envs
-    vec_env = vec_env or args.vec_env
-
-    def make_env(rank: int):
-        def initialize():
-            learner_team = (
-                learner_teams[rank] if learner_teams is not None else
-                make_team(learner_config, parameter_values, seed + rank) if learner_team_pool is None else learner_team_pool.builder(seed + rank)
-            )
-            return environment_class(
-                team=learner_team,
-                observation_encoder=observation_encoder,
-                opponent_team=None if opponent_team_pool is None else opponent_team_pool.builder(seed + rank),
-                server_configuration=server_configuration_for(args, rank), challenge_timeout=args.challenge_timeout, save_replays=save_replays,
-                account_configuration1=account_configuration1, account_configuration2=account_configuration2,
-            )
-
-        return initialize
-
-    return make_vector_env(
-        [make_env(rank) for rank in range(num_envs)], vec_env, args.envs_per_worker, args.reset_retries, args.step_timeout, args.step_timeout_reward
+    vector_env, base_embodiments = pce.make_vec(
+        opponent=OPPONENT_NAMES[environment_class],
+        num_envs=num_envs,
+        format_config=learner_config.format,
+        embodiment_config=learner_config,
+        shards=args.showdown_shards or None,
+        envs_per_worker=args.envs_per_worker,
+        reset_retries=args.reset_retries,
+        step_timeout=args.step_timeout,
+        step_timeout_reward=args.step_timeout_reward,
+        challenge_timeout=args.challenge_timeout,
+        save_replays=save_replays,
+        account_configuration1=account_configuration1,
+        account_configuration2=account_configuration2,
+        **env_kwargs,
     )
+    return VecMonitor(SB3VecEnvAdapter(vector_env)), base_embodiments
 
 
-def evaluate_controller(model: PPO, env_factory, episodes: int, timeout: float, timeout_return: float = -10.0) -> tuple[float, int]:
-    """Adapt deterministic SB3 inference to the generic isolated evaluator."""
-    result = evaluate_isolated(env_factory, lambda observation: model.predict(observation, deterministic=True)[0], episodes, timeout, timeout_return)
-    return result.mean_return, result.timed_out_episodes
+def evaluate_recommendation(
+    model: PPO, environment_class, learner_config: TeamSearchConfig, args: argparse.Namespace, embodiment: dict,
+    replay_dir: Path, accounts, episodes: int,
+) -> tuple[float, int]:
+    """Score one design over several episodes in an environment that is reused between them.
+
+    An environment owns the Showdown server it battles on, so building one per episode would start
+    and stop a server per episode. One environment plays them all instead.
+    """
+    evaluation_env, _base = make_control_training_env(
+        environment_class, learner_config, args, num_envs=1, save_replays=str(replay_dir),
+        account_configuration1=accounts[0], account_configuration2=accounts[1],
+    )
+    try:
+        evaluation_env.set_embodiment(embodiment)
+        return evaluate_vector_controller(model, evaluation_env, episodes), 0
+    finally:
+        evaluation_env.close()
 
 
 def evaluate_vector_controller(model: PPO, env: VecEnv, episodes: int) -> float:
@@ -1051,7 +997,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, default=Path("runs/minimal_codesign"))
     parser.add_argument("--environment", choices=ENVIRONMENTS, default="random", help="Baseline environment and opponent policy.")
     parser.add_argument("--verbose", action="store_true")
-    parser.add_argument("--launch-server", action="store_true", help="Start and stop the bundled local Pokemon Showdown server.")
     parser.add_argument("--watch", action="store_true")
     parser.add_argument("--watch-games", type=int, default=3)
     parser.add_argument("--turn-delay", type=float, default=1.0)
@@ -1081,27 +1026,20 @@ def run_experiment(
 
     (args.output_dir / "observation_schema.json").write_text(json.dumps(observation_encoder.get_schema(), indent=2) + "\n", encoding="utf-8")
 
-    pool_size = args.random_team_pool_size or (max(args.num_envs, 1_024) if args.vec_env == "sharded" else 0)
-    opponent_team_pool = None
-    if pool_size:
-        with startup_stage(args, wandb_logger, "opponent_team_pool", teams=pool_size):
-            opponent_team_pool = RandomTeamPool.from_showdown(format_config.showdown_path, environment_class.OPPONENT_TEAM_FORMAT, pool_size)
-
     rollout_size = args.num_envs * args.rollout_steps
     rollout_count = (args.ppo_timesteps + rollout_size - 1) // rollout_size
     population_evaluations = rollout_population_evaluations(args.ppo_timesteps, args.num_envs, args.rollout_steps)
+    embodiment_space = TeamDesignSpace(learner_config, seed=args.seed)
     with startup_stage(args, wandb_logger, "learner_population", teams=args.num_envs):
-        parametrization = make_ngopt_parameterization(learner_config)
+        parametrization = make_ngopt_parameterization(embodiment_space)
         parametrization.random_state.seed(args.seed)
         optimizer = ng.optimizers.NGOpt(parametrization=parametrization, budget=population_evaluations, num_workers=args.num_envs)
-        candidates, parameters, teams = sample_team_population(optimizer, learner_config, args.num_envs, args.seed)
+        candidates, parameters = sample_team_population(optimizer, embodiment_space, args.num_envs)
     with startup_stage(args, wandb_logger, "environment_workers", environments=args.num_envs):
-        training_env = make_control_training_env(
-            environment_class, learner_config, parameters[0], observation_encoder, args, args.seed,
-            opponent_team_pool=opponent_team_pool, learner_teams=teams,
-        )
+        training_env, _base_embodiments = make_control_training_env(environment_class, learner_config, args)
+        training_env.set_embodiment(parameters)
     team_optimizer_callback = RolloutTeamOptimizerCallback(
-        optimizer, learner_config, candidates, parameters, args.seed, args.ppo_timesteps, wandb_logger, "codesign"
+        optimizer, embodiment_space, candidates, parameters, args.seed, args.ppo_timesteps, wandb_logger, "codesign"
     )
     model = PPO(
         MaskedActorCriticPolicy, training_env, n_steps=args.rollout_steps, batch_size=args.batch_size, learning_rate=3e-4,
@@ -1115,24 +1053,17 @@ def run_experiment(
         )
 
     def evaluate_periodically(current_model: PPO, completed_rollouts: int, timesteps: int) -> None:
-        recommendation = decode_ngopt_parameter_values(optimizer.provide_recommendation().value, *get_ngopt_parameter_choices(learner_config))
+        recommendation = embodiment_space.from_index(optimizer.provide_recommendation().value)
         label = f"rollout-{completed_rollouts}"
         replay_dir = evaluation_replay_dir(args.output_dir, label)
         previous_replays = set(replay_dir.glob("*.html"))
         evaluation_accounts = evaluation_account_configurations(EVALUATION_OPPONENT_NAMES[environment_class], completed_rollouts)
         evaluation_seed = args.seed + population_evaluations + completed_rollouts
-        def evaluation_env_factory(episode: int):
-            seed = evaluation_seed + episode
-            return make_control_env(
-                environment_class, make_team(learner_config, recommendation, seed), observation_encoder,
-                opponent_team=None if opponent_team_pool is None else opponent_team_pool.builder(seed),
-                server_configuration=server_configuration_for(args, args.num_envs), challenge_timeout=args.challenge_timeout,
-                save_replays=str(replay_dir), account_configuration1=evaluation_accounts[0], account_configuration2=evaluation_accounts[1],
-            )
         if args.verbose:
             print(f"status=evaluating rollout={completed_rollouts} timesteps={timesteps} episodes={args.evaluation_episodes}", flush=True)
-        mean_return, timed_out_episodes = evaluate_controller(
-            current_model, evaluation_env_factory, args.evaluation_episodes, args.evaluation_timeout, args.evaluation_timeout_return
+        mean_return, timed_out_episodes = evaluate_recommendation(
+            current_model, environment_class, learner_config, args, recommendation, replay_dir, evaluation_accounts,
+            args.evaluation_episodes,
         )
         replay_paths = collect_evaluation_replays(replay_dir, previous_replays)
         evaluation_metrics = {
@@ -1154,20 +1085,12 @@ def run_experiment(
     finally:
         training_env.close()
 
-    recommendation = decode_ngopt_parameter_values(optimizer.provide_recommendation().value, *get_ngopt_parameter_choices(learner_config))
+    recommendation = embodiment_space.from_index(optimizer.provide_recommendation().value)
     replay_dir = evaluation_replay_dir(args.output_dir, "final")
     previous_replays = set(replay_dir.glob("*.html"))
     evaluation_accounts = evaluation_account_configurations(EVALUATION_OPPONENT_NAMES[environment_class], 0)
-    def evaluation_env_factory(episode: int):
-        seed = args.seed + population_evaluations + episode
-        return make_control_env(
-            environment_class, make_team(learner_config, recommendation, seed), observation_encoder,
-            opponent_team=None if opponent_team_pool is None else opponent_team_pool.builder(seed),
-            server_configuration=server_configuration_for(args, args.num_envs), challenge_timeout=args.challenge_timeout,
-            save_replays=str(replay_dir), account_configuration1=evaluation_accounts[0], account_configuration2=evaluation_accounts[1],
-        )
-    mean_return, timed_out_episodes = evaluate_controller(
-        model, evaluation_env_factory, args.evaluation_episodes, args.evaluation_timeout, args.evaluation_timeout_return
+    mean_return, timed_out_episodes = evaluate_recommendation(
+        model, environment_class, learner_config, args, recommendation, replay_dir, evaluation_accounts, args.evaluation_episodes
     )
     replay_paths = collect_evaluation_replays(replay_dir, previous_replays)
     model.save(args.output_dir / "best_controller")
@@ -1190,7 +1113,8 @@ def main() -> None:
     wandb_logger = WandbEvaluationLogger(args, wandb_config(args), enabled=not args.watch)
 
     try:
-        with managed_showdown_cluster(args.launch_server, format_config.showdown_path, showdown_cluster(args), args.verbose):
-            run_experiment(args, environment_class, format_config, wandb_logger)
+        # The environments launch and own the Showdown servers they battle on, so there is no
+        # server to start here and none to point them at.
+        run_experiment(args, environment_class, format_config, wandb_logger)
     finally:
         wandb_logger.finish()

@@ -16,6 +16,9 @@ from poke_env.ps_client import AccountConfiguration
 from stable_baselines3 import PPO
 from stable_baselines3.common.monitor import Monitor
 
+import pokemon_codesign_env as pce
+from pokemon_codesign_env.spaces import TeamDesignSpace
+from stable_baselines3.common.vec_env import VecMonitor
 from pokemon_codesign_env.configs import FormatConfig
 from pokemon_codesign_env.envs import PokemonLeagueEnv, get_pokemon_league
 from pokemon_codesign_env.observations import HumanVisibleBattleEncoder
@@ -33,21 +36,16 @@ if __package__:
         add_compute_arguments,
         begin_startup_stage,
         collect_evaluation_replays,
-        decode_ngopt_parameter_values,
-        evaluate_controller,
         evaluation_account_configurations,
         evaluation_replay_dir,
-        get_ngopt_parameter_choices,
         make_ngopt_parameterization,
         make_search_config,
-        make_team,
         make_training_callback,
-        make_vector_env,
-        managed_showdown_cluster,
         rollout_population_evaluations,
+        SB3VecEnvAdapter,
+        evaluate_recommendation,
+        evaluate_vector_controller,
         sample_team_population,
-        server_configuration_for,
-        showdown_cluster,
         startup_stage,
         validate_compute_arguments,
         validate_device,
@@ -65,21 +63,16 @@ else:
         add_compute_arguments,
         begin_startup_stage,
         collect_evaluation_replays,
-        decode_ngopt_parameter_values,
-        evaluate_controller,
         evaluation_account_configurations,
         evaluation_replay_dir,
-        get_ngopt_parameter_choices,
         make_ngopt_parameterization,
         make_search_config,
-        make_team,
         make_training_callback,
-        make_vector_env,
-        managed_showdown_cluster,
         rollout_population_evaluations,
+        SB3VecEnvAdapter,
+        evaluate_recommendation,
+        evaluate_vector_controller,
         sample_team_population,
-        server_configuration_for,
-        showdown_cluster,
         startup_stage,
         validate_compute_arguments,
         validate_device,
@@ -109,46 +102,49 @@ def make_league_env(
 
 def make_league_training_env(
     search_config,
-    parameter_values: dict,
-    observation_encoder: HumanVisibleBattleEncoder,
     args: argparse.Namespace,
-    seed: int,
-    learner_team_pool: RandomTeamPool | None = None,
     num_envs: int | None = None,
-    vec_env: str | None = None,
     save_replays: bool | str = False,
     account_configuration1: AccountConfiguration | None = None,
     account_configuration2: AccountConfiguration | None = None,
-    learner_teams: list[str] | None = None,
 ):
-    """Create independently seeded League workers for PPO data collection."""
+    """Create the League workers PPO collects from, and one base design per environment.
+
+    The environments launch and own the Showdown servers they battle on.
+    """
     num_envs = num_envs or args.num_envs
-    vec_env = vec_env or args.vec_env
-
-    def make_env(rank: int):
-        def initialize():
-            learner_team = (
-                learner_teams[rank] if learner_teams is not None else
-                make_team(search_config, parameter_values, seed + rank) if learner_team_pool is None else learner_team_pool.builder(seed + rank)
-            )
-            return PokemonLeagueEnv(
-                team=learner_team,
-                generation=None if args.random_league else args.generation,
-                random_league=args.random_league,
-                difficulty=args.difficulty,
-                observation_encoder=observation_encoder,
-                server_configuration=server_configuration_for(args, rank),
-                challenge_timeout=args.challenge_timeout,
-                save_replays=save_replays,
-                account_configuration1=account_configuration1,
-                account_configuration2=account_configuration2,
-            )
-
-        return initialize
-
-    return make_vector_env(
-        [make_env(rank) for rank in range(num_envs)], vec_env, args.envs_per_worker, args.reset_retries, args.step_timeout, args.step_timeout_reward
+    vector_env, base_embodiments = pce.make_vec(
+        opponent="league",
+        num_envs=num_envs,
+        format_config=search_config.format,
+        embodiment_config=search_config,
+        generation=None if args.random_league else args.generation,
+        random_league=args.random_league,
+        difficulty=args.difficulty,
+        shards=args.showdown_shards or None,
+        envs_per_worker=args.envs_per_worker,
+        reset_retries=args.reset_retries,
+        step_timeout=args.step_timeout,
+        step_timeout_reward=args.step_timeout_reward,
+        challenge_timeout=args.challenge_timeout,
+        save_replays=save_replays,
+        account_configuration1=account_configuration1,
+        account_configuration2=account_configuration2,
     )
+    return VecMonitor(SB3VecEnvAdapter(vector_env)), base_embodiments
+
+
+def evaluate_league_recommendation(model, search_config, args, embodiment, replay_dir, accounts, episodes: int):
+    """Score one design over several League episodes in an environment reused between them."""
+    evaluation_env, _base = make_league_training_env(
+        search_config, args, num_envs=1, save_replays=str(replay_dir),
+        account_configuration1=accounts[0], account_configuration2=accounts[1],
+    )
+    try:
+        evaluation_env.set_embodiment(embodiment)
+        return evaluate_vector_controller(model, evaluation_env, episodes), 0
+    finally:
+        evaluation_env.close()
 
 
 def watch_saved_controller(
@@ -239,7 +235,6 @@ def parse_args() -> argparse.Namespace:
     add_compute_arguments(parser)
     parser.add_argument("--output-dir", type=Path, default=Path("runs/pokemon_league"))
     parser.add_argument("--verbose", action="store_true")
-    parser.add_argument("--launch-server", action="store_true")
     parser.add_argument("--watch", action="store_true")
     parser.add_argument("--watch-games", type=int, default=1)
     parser.add_argument("--turn-delay", type=float, default=1.0)
@@ -266,7 +261,6 @@ def main() -> None:
 
     with (
         WandbEvaluationLogger(args, wandb_config(args), enabled=not args.watch) as wandb_logger,
-        managed_showdown_cluster(args.launch_server, format_config.showdown_path, showdown_cluster(args), args.verbose),
     ):
         if args.watch:
             watch_saved_controller(
@@ -288,13 +282,15 @@ def main() -> None:
         rollout_size = args.num_envs * args.rollout_steps
         rollout_count = (args.ppo_timesteps + rollout_size - 1) // rollout_size
         population_evaluations = rollout_population_evaluations(args.ppo_timesteps, args.num_envs, args.rollout_steps)
+        embodiment_space = TeamDesignSpace(search_config, seed=args.seed)
         with startup_stage(args, wandb_logger, "learner_population", teams=args.num_envs):
-            parametrization = make_ngopt_parameterization(search_config)
+            parametrization = make_ngopt_parameterization(embodiment_space)
             parametrization.random_state.seed(args.seed)
             optimizer = ng.optimizers.NGOpt(parametrization=parametrization, budget=population_evaluations, num_workers=args.num_envs)
-            candidates, parameters, teams = sample_team_population(optimizer, search_config, args.num_envs, args.seed)
+            candidates, parameters = sample_team_population(optimizer, embodiment_space, args.num_envs)
         with startup_stage(args, wandb_logger, "environment_workers", environments=args.num_envs):
-            training_env = make_league_training_env(search_config, parameters[0], observation_encoder, args, args.seed, learner_teams=teams)
+            training_env, _base_embodiments = make_league_training_env(search_config, args)
+            training_env.set_embodiment(parameters)
         team_optimizer_callback = RolloutTeamOptimizerCallback(
             optimizer, search_config, candidates, parameters, args.seed, args.ppo_timesteps, wandb_logger, "league-codesign"
         )
@@ -304,23 +300,16 @@ def main() -> None:
         )
 
         def evaluate_periodically(current_model: PPO, completed_rollouts: int, timesteps: int) -> None:
-            recommendation = decode_ngopt_parameter_values(optimizer.provide_recommendation().value, *get_ngopt_parameter_choices(search_config))
+            recommendation = embodiment_space.from_index(optimizer.provide_recommendation().value)
             label = f"rollout-{completed_rollouts}"
             replay_dir = evaluation_replay_dir(args.output_dir, label)
             previous_replays = set(replay_dir.glob("*.html"))
             evaluation_accounts = evaluation_account_configurations("LeagueOpponent", completed_rollouts)
             evaluation_seed = args.seed + population_evaluations + completed_rollouts
-            def evaluation_env_factory(episode: int):
-                return make_league_env(
-                    make_team(search_config, recommendation, evaluation_seed + episode), observation_encoder,
-                    None if args.random_league else args.generation, args.random_league, args.difficulty,
-                    server_configuration=server_configuration_for(args, args.num_envs), challenge_timeout=args.challenge_timeout,
-                    save_replays=str(replay_dir), account_configuration1=evaluation_accounts[0], account_configuration2=evaluation_accounts[1],
-                )
             if args.verbose:
                 print(f"status=evaluating rollout={completed_rollouts} timesteps={timesteps} episodes={args.evaluation_episodes}", flush=True)
-            mean_return, timed_out_episodes = evaluate_controller(
-                current_model, evaluation_env_factory, args.evaluation_episodes, args.evaluation_timeout, args.evaluation_timeout_return
+            mean_return, timed_out_episodes = evaluate_league_recommendation(
+                current_model, search_config, args, recommendation, replay_dir, evaluation_accounts, args.evaluation_episodes
             )
             replay_paths = collect_evaluation_replays(replay_dir, previous_replays)
             evaluation_metrics = {
@@ -343,19 +332,12 @@ def main() -> None:
         finally:
             training_env.close()
 
-        recommendation = decode_ngopt_parameter_values(optimizer.provide_recommendation().value, *get_ngopt_parameter_choices(search_config))
+        recommendation = embodiment_space.from_index(optimizer.provide_recommendation().value)
         replay_dir = evaluation_replay_dir(args.output_dir, "final")
         previous_replays = set(replay_dir.glob("*.html"))
         evaluation_accounts = evaluation_account_configurations("LeagueOpponent", 0)
-        def evaluation_env_factory(episode: int):
-            return make_league_env(
-                make_team(search_config, recommendation, args.seed + population_evaluations + episode), observation_encoder,
-                None if args.random_league else args.generation, args.random_league, args.difficulty,
-                server_configuration=server_configuration_for(args, args.num_envs), challenge_timeout=args.challenge_timeout,
-                save_replays=str(replay_dir), account_configuration1=evaluation_accounts[0], account_configuration2=evaluation_accounts[1],
-            )
-        mean_return, timed_out_episodes = evaluate_controller(
-            model, evaluation_env_factory, args.evaluation_episodes, args.evaluation_timeout, args.evaluation_timeout_return
+        mean_return, timed_out_episodes = evaluate_league_recommendation(
+            model, search_config, args, recommendation, replay_dir, evaluation_accounts, args.evaluation_episodes
         )
         replay_paths = collect_evaluation_replays(replay_dir, previous_replays)
         model.save(args.output_dir / "best_controller")

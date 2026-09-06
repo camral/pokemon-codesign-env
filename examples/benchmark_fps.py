@@ -10,6 +10,11 @@ uniformly random legal actions, chosen from the action mask each observation car
 Setup and stepping are timed separately, because launching the Showdown servers and opening a
 battle for every environment is a fixed cost paid once, while the step rate is what a training run
 actually lives with.
+
+The headline number is the effective rate: environment steps per second including the episode
+boundaries. Autoreset starts the next battle inside the step that ended the previous one, so a run
+short enough to finish no episodes measures only the stepping of battles already under way and
+flatters the result. That case is called out rather than reported as the effective rate.
 """
 
 import argparse
@@ -54,6 +59,44 @@ def random_legal_actions(observation, rng: np.random.Generator) -> np.ndarray:
     return np.where(mask.any(axis=1), (rng.random(mask.shape) * mask).argmax(axis=1), 0).astype(np.int64)
 
 
+def summarize(
+    *, num_envs: int, shards: int, envs_per_worker: int, vector_steps: int, episodes: int,
+    boundary_vector_steps: int, boundary_seconds: float, construction_seconds: float,
+    reset_seconds: float, step_seconds: float, teardown_seconds: float,
+) -> dict:
+    """Turn the phase timings into the reported measurements."""
+    environment_steps = vector_steps * num_envs
+    ongoing_vector_steps = vector_steps - boundary_vector_steps
+    ongoing_seconds = step_seconds - boundary_seconds
+    return {
+        "num_envs": num_envs,
+        "shards": shards,
+        "envs_per_worker": envs_per_worker,
+        "vector_steps": vector_steps,
+        "environment_steps": environment_steps,
+        "episodes_finished": episodes,
+        "construction_seconds": round(construction_seconds, 2),
+        "reset_seconds": round(reset_seconds, 2),
+        "step_seconds": round(step_seconds, 2),
+        "teardown_seconds": round(teardown_seconds, 2),
+        # What a training run sustains: every environment step, including the episode boundaries.
+        "effective_steps_per_second": round(environment_steps / step_seconds, 1),
+        "vector_steps_per_second": round(vector_steps / step_seconds, 2),
+        "seconds_per_vector_step": round(step_seconds / vector_steps, 3),
+        "steps_per_episode": round(environment_steps / episodes, 1) if episodes else None,
+        "episodes_per_second": round(episodes / step_seconds, 2),
+        "vector_steps_with_an_episode_boundary": boundary_vector_steps,
+        "episode_boundary_seconds": round(boundary_seconds, 2),
+        "episode_boundary_share_of_step_time": round(boundary_seconds / step_seconds, 3),
+        # Battles already under way, with no episode starting: the ceiling the effective rate is
+        # pulled down from. Undefined when every vector step happened to finish something.
+        "ongoing_battle_steps_per_second": (
+            round(ongoing_vector_steps * num_envs / ongoing_seconds, 1)
+            if ongoing_vector_steps and ongoing_seconds > 0 else None
+        ),
+    }
+
+
 def benchmark(args: argparse.Namespace) -> dict:
     format_config = FormatConfig.from_showdown(RandomPlayerEnv.BATTLE_FORMAT)
     search_config = TeamSearchConfig(
@@ -92,35 +135,37 @@ def benchmark(args: argparse.Namespace) -> dict:
             observation, *_ = vector_env.step(random_legal_actions(observation, rng))
         print(f"warmup_steps={args.warmup_steps} done", flush=True)
 
+        # A finished episode is reset inside the step that ended it, so the cost of starting the
+        # next battle lands on that step rather than anywhere a caller could measure separately.
+        # Timing each vector step and splitting on whether an episode ended in it separates what a
+        # training run actually sustains from the rate of stepping battles that are already going.
         episodes = 0
+        boundary_seconds = 0.0
+        boundary_vector_steps = 0
         started = time.perf_counter()
         for step in range(args.steps):
+            step_started = time.perf_counter()
             observation, _rewards, terminations, truncations, _infos = vector_env.step(
                 random_legal_actions(observation, rng)
             )
-            episodes += int(np.sum(terminations | truncations))
+            elapsed = time.perf_counter() - step_started
+            finished = int(np.sum(terminations | truncations))
+            episodes += finished
+            if finished:
+                boundary_seconds += elapsed
+                boundary_vector_steps += 1
         step_seconds = time.perf_counter() - started
     finally:
         started = time.perf_counter()
         vector_env.close()
         teardown_seconds = time.perf_counter() - started
 
-    environment_steps = args.steps * args.num_envs
-    return {
-        "num_envs": args.num_envs,
-        "shards": shards,
-        "envs_per_worker": args.envs_per_worker,
-        "vector_steps": args.steps,
-        "environment_steps": environment_steps,
-        "episodes_finished": episodes,
-        "construction_seconds": round(construction_seconds, 2),
-        "reset_seconds": round(reset_seconds, 2),
-        "step_seconds": round(step_seconds, 2),
-        "teardown_seconds": round(teardown_seconds, 2),
-        "steps_per_second": round(environment_steps / step_seconds, 1),
-        "vector_steps_per_second": round(args.steps / step_seconds, 2),
-        "seconds_per_vector_step": round(step_seconds / args.steps, 3),
-    }
+    return summarize(
+        num_envs=args.num_envs, shards=shards, envs_per_worker=args.envs_per_worker, vector_steps=args.steps,
+        episodes=episodes, boundary_vector_steps=boundary_vector_steps, boundary_seconds=boundary_seconds,
+        construction_seconds=construction_seconds, reset_seconds=reset_seconds, step_seconds=step_seconds,
+        teardown_seconds=teardown_seconds,
+    )
 
 
 def main() -> None:
@@ -130,9 +175,22 @@ def main() -> None:
     for name, value in measurements.items():
         print(f"{name}={value}")
     print(
-        f"\nFPS={measurements['steps_per_second']:.0f} environment steps/second "
+        f"\nEffective FPS={measurements['effective_steps_per_second']:.0f} environment steps/second "
         f"across {measurements['num_envs']} environments"
     )
+    if not measurements["episodes_finished"]:
+        print(
+            "WARNING: no episode finished, so this is the rate of stepping battles already under way "
+            "and not the effective rate. Starting the next battle is charged to the step that ends an "
+            "episode, so raise --steps past one episode length to measure what a training run sustains."
+        )
+    elif measurements["ongoing_battle_steps_per_second"]:
+        print(
+            f"  {measurements['ongoing_battle_steps_per_second']:.0f} steps/second between episodes, "
+            f"{measurements['episode_boundary_share_of_step_time'] * 100:.0f}% of step time spent on the "
+            f"{measurements['episodes_finished']} episode boundaries "
+            f"({measurements['steps_per_episode']:.0f} steps/episode)"
+        )
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(measurements, indent=2) + "\n", encoding="utf-8")

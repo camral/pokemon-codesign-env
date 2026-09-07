@@ -84,6 +84,15 @@ representation and the batched `validate_embodiments` screen, passing one design
 environment to a vector environment, and how to convert &Theta; between coordinate systems
 if your designer wants different ones.
 
+## Environment Throughput
+
+The environment is an entirely cpu-based simulation, and as such scales with what the target device allows. We have included a simple scaling test on a machine with 2 AMD EPYC 9555 64-Core Processor (64-core, 128-thread processor) CPUs on different numbers of parallel environments with different shard numbers.
+
+<p align="center">
+  <img src="docs/figures/scaling_curve.png" alt="Effective and Environment FPS on 2 random-actors in Pokemon Showdown across different numbers of parallel environments and shard numbers. Effective FPS includes the time taken to reconstruct the environments with new teams/embodiments." width="100%">
+</p>
+
+
 ## Minimal SB3 + NGOpt experiment
 
 The example in `examples/train_sb3_ngopt.py` uses NGOpt to choose the species

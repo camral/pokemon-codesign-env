@@ -65,6 +65,8 @@ def _sharded_worker(remote, parent_remote, env_fn_wrappers, reset_retries: int) 
     except BaseException:
         try:
             remote.send((False, traceback.format_exc()))
+        except (BrokenPipeError, EOFError, OSError):
+            pass
         finally:
             remote.close()
         return

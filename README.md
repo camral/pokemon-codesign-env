@@ -92,6 +92,15 @@ The environment is an entirely cpu-based simulation, and as such scales with wha
   <img src="docs/figures/scaling_curve.png" alt="Effective and Environment FPS on 2 random-actors in Pokemon Showdown across different numbers of parallel environments and shard numbers. Effective FPS includes the time taken to reconstruct the environments with new teams/embodiments." width="100%">
 </p>
 
+Each Showdown shard uses an isolated runtime directory. By default these are
+created under `/tmp`. Set `POKEMON_SHOWDOWN_RUNTIME_DIR` to place them on a
+larger local scratch filesystem:
+
+```bash
+export POKEMON_SHOWDOWN_RUNTIME_DIR=/local_nvme/$USER/pokemon-showdown
+```
+
+The directory is created automatically and shard runtimes are removed when their owning environment closes.
 
 ## Minimal SB3 + NGOpt experiment
 

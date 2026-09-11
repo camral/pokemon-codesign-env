@@ -13,6 +13,9 @@ from pathlib import Path
 from poke_env.ps_client import ServerConfiguration
 
 
+RUNTIME_DIR_ENV = "POKEMON_SHOWDOWN_RUNTIME_DIR"
+
+
 @dataclass(frozen=True)
 class ShowdownEndpoint:
     """Connection details for one Pokemon Showdown server shard."""
@@ -78,7 +81,12 @@ def _same_filesystem(left, right) -> bool:
 
 
 def _runtime_base_dir() -> str:
-    """Return the scratch directory the shard runtimes are built in."""
+    """Return the configured scratch directory used to build shard runtimes."""
+    configured = os.environ.get(RUNTIME_DIR_ENV)
+    if configured:
+        runtime_dir = Path(configured).expanduser()
+        runtime_dir.mkdir(parents=True, exist_ok=True)
+        return str(runtime_dir.resolve())
     return "/tmp" if os.path.isdir("/tmp") else tempfile.gettempdir()
 
 

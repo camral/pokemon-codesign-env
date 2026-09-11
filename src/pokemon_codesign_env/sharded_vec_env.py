@@ -176,6 +176,22 @@ class ShardedVecEnv(VectorEnv):
             self.processes[worker_index] = process
 
     def _restart_worker(self, worker_index: int, reason: str) -> list:
+        reset_results = self._restart_worker_for_reset(
+            worker_index, [(None, {}) for _ in range(self.worker_sizes[worker_index])], reason
+        )
+        worker_start = self.worker_starts[worker_index]
+        environment_indices = list(range(worker_start, worker_start + self.worker_sizes[worker_index]))
+        recovered = []
+        for environment_index, (observation, reset_info) in zip(environment_indices, reset_results, strict=True):
+            # Losing a worker ends its episodes without them finishing, which is a truncation.
+            info = {
+                "final_obs": observation, "final_info": {}, "sharded_worker_restarted": True,
+                "sharded_worker_index": worker_index, "environment_index": environment_index, "restart_reason": reason,
+            }
+            recovered.append((observation, self.step_timeout_reward, False, True, info, reset_info))
+        return recovered
+
+    def _restart_worker_for_reset(self, worker_index: int, reset_arguments: list, reason: str) -> list:
         worker_start = self.worker_starts[worker_index]
         environment_indices = list(range(worker_start, worker_start + self.worker_sizes[worker_index]))
         process = self.processes[worker_index]
@@ -183,7 +199,6 @@ class ShardedVecEnv(VectorEnv):
             "Restarting stalled environment worker %d (pid=%s, environments=%s, reason=%s)",
             worker_index, process.pid, environment_indices, reason,
         )
-        reset_results = None
         for attempt in range(self.reset_retries):
             try:
                 self.remotes[worker_index].close()
@@ -195,23 +210,11 @@ class ShardedVecEnv(VectorEnv):
             self._start_worker(worker_index)
             process = self.processes[worker_index]
             try:
-                self.remotes[worker_index].send(("reset", [(None, {}) for _ in range(self.worker_sizes[worker_index])]))
-                reset_results = self._receive(self.remotes[worker_index], timeout=max(60.0, self.step_timeout))
-                break
-            except (BrokenPipeError, EOFError, OSError, RuntimeError, TimeoutError):
+                self.remotes[worker_index].send(("reset", reset_arguments))
+                return self._receive(self.remotes[worker_index], timeout=max(60.0, self.step_timeout))
+            except (BrokenPipeError, EOFError, OSError, RuntimeError, TimeoutError) as error:
                 if attempt + 1 == self.reset_retries:
-                    raise
-        if reset_results is None:
-            raise RuntimeError(f"Could not restart sharded environment worker {worker_index}")
-        recovered = []
-        for environment_index, (observation, reset_info) in zip(environment_indices, reset_results, strict=True):
-            # Losing a worker ends its episodes without them finishing, which is a truncation.
-            info = {
-                "final_obs": observation, "final_info": {}, "sharded_worker_restarted": True,
-                "sharded_worker_index": worker_index, "environment_index": environment_index, "restart_reason": reason,
-            }
-            recovered.append((observation, self.step_timeout_reward, False, True, info, reset_info))
-        return recovered
+                    raise RuntimeError(f"Could not restart sharded environment worker {worker_index}") from error
 
     def _receive_step_workers(self) -> list[list]:
         results = {
@@ -309,25 +312,31 @@ class ShardedVecEnv(VectorEnv):
             raise ValueError(f"Expected one seed and one option dictionary per environment, got {len(seeds)} and {len(per_environment_options)}")
 
         arguments = self._split(list(zip(seeds, per_environment_options, strict=True)))
-        for remote, batch in zip(self.remotes, arguments, strict=True):
-            remote.send(("reset", batch))
+        results, failures, submitted = {}, {}, set()
+        for worker_index, (remote, batch) in enumerate(zip(self.remotes, arguments, strict=True)):
+            try:
+                remote.send(("reset", batch))
+                submitted.add(worker_index)
+            except (BrokenPipeError, EOFError, OSError) as error:
+                failures[worker_index] = error
 
         # Every worker has been sent a command, so every reply must be read even once one of them
         # has failed. A reply left in the pipe desynchronises that worker for good: the next
         # command reads this reply instead of its own, and a transient failure that the retries
         # exist to absorb would take the whole vector environment down with it.
-        results, failures = [], []
-        for remote in self.remotes:
+        for worker_index in submitted:
             try:
-                results.extend(self._receive(remote))
+                results[worker_index] = self._receive(self.remotes[worker_index])
             except Exception as error:
-                failures.append(error)
+                failures[worker_index] = error
         if failures:
-            if len(failures) > 1:
-                raise RuntimeError(f"{len(failures)} sharded environment workers failed on reset") from failures[0]
-            raise failures[0]
+            for worker_index, error in failures.items():
+                results[worker_index] = self._restart_worker_for_reset(
+                    worker_index, arguments[worker_index], f"reset failure: {error}"
+                )
 
-        observations, self.reset_infos = zip(*results, strict=True)
+        ordered_results = [result for worker_index in range(len(self.remotes)) for result in results[worker_index]]
+        observations, self.reset_infos = zip(*ordered_results, strict=True)
         return _stack_observations(observations, self.single_observation_space), self._batch_infos(self.reset_infos)
 
     def close(self, **kwargs) -> None:
@@ -337,7 +346,7 @@ class ShardedVecEnv(VectorEnv):
             for remote in self.remotes:
                 try:
                     self._receive(remote, timeout=10)
-                except (EOFError, OSError, TimeoutError):
+                except (EOFError, OSError, RuntimeError, TimeoutError):
                     pass
         for remote in self.remotes:
             try:
@@ -347,7 +356,7 @@ class ShardedVecEnv(VectorEnv):
         for remote in self.remotes:
             try:
                 self._receive(remote, timeout=10)
-            except (EOFError, OSError, TimeoutError):
+            except (EOFError, OSError, RuntimeError, TimeoutError):
                 pass
         for process in self.processes:
             process.join(timeout=2)

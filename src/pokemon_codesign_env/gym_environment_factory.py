@@ -88,7 +88,7 @@ class PokEnv(gymnasium.Env):
 
         # The wrapped battle environment, which owns the Showdown connection.
         self.observation_encoder = HumanVisibleBattleEncoder.from_showdown(format_config, observation_config=self.observation_config)
-        self.env = self.environment_class(team=self.team_designer,observation_encoder=self.observation_encoder,showdown_path=showdown_path,**env_kwargs)
+        self.env = self.environment_class(team=self.team_designer,observation_encoder=self.observation_encoder,format_config=format_config,showdown_path=showdown_path,**env_kwargs)
 
         # Bound and pad the action space. max_action_space_size exists in the codesign API for
         # environments where designing a different body changes how many actions there are. This
@@ -339,9 +339,16 @@ class PokEnv(gymnasium.Env):
                 server_context.close()
 
     def _default_battle_format(self, env_kwargs: dict) -> str:
+        return self.default_battle_format(self.opponent, env_kwargs)
+
+    @staticmethod
+    def default_battle_format(opponent: str, env_kwargs: dict) -> str:
         """Return the battle format a preset uses when no FormatConfig is supplied."""
-        if self.environment_class is not PokemonLeagueEnv:
-            return self.environment_class.BATTLE_FORMAT
+        if opponent not in OPPONENTS:
+            raise ValueError(f"opponent must be one of {sorted(OPPONENTS)}, got {opponent!r}")
+        environment_class = OPPONENTS[opponent]
+        if environment_class is not PokemonLeagueEnv:
+            return environment_class.BATTLE_FORMAT
         if env_kwargs.get("random_league"):
             return PokemonLeagueEnv.RANDOM_BATTLE_FORMAT
         generation = env_kwargs.get("generation")

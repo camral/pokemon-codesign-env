@@ -303,6 +303,8 @@ def make_vec(
     reset_retries: int = 3,
     step_timeout: float = 60.0,
     step_timeout_reward: float = 0.0,
+    reset_timeout: float = 300.0,
+    worker_startup_timeout: float = 300.0,
     start_method: str = "spawn",
     monitor: bool = True,
     showdown_path: Path | None = None,
@@ -325,6 +327,10 @@ def make_vec(
         operating system.
     :param startup_timeout: how long the shards have to start serving. Defaults to a budget that
         grows with `shards`, since a large cluster boots every server against the same machine.
+    :param reset_timeout: maximum time for all workers to complete a reset before failed workers
+        are reconstructed.
+    :param worker_startup_timeout: maximum time for a new or reconstructed worker to build its
+        environments and report ready.
     """
     if "server_configuration" in env_kwargs:
         raise ValueError("server_configuration cannot be set; make_vec launches and owns its Showdown servers")
@@ -334,6 +340,14 @@ def make_vec(
         raise ValueError(f"shards must be at least one, got {shards}")
     if num_envs < 1:
         raise ValueError(f"num_envs must be at least one, got {num_envs}")
+
+    # Resolve and validate the shared format once in the parent. Besides avoiding one Node process
+    # per environment, this catches an incomplete or corrupt Showdown build before hundreds of
+    # workers and websocket clients have been started.
+    if env_kwargs.get("format_config") is None:
+        env_kwargs["format_config"] = FormatConfig.from_showdown(
+            PokEnv.default_battle_format(opponent, env_kwargs), showdown_path or default_showdown_path()
+        )
 
     stack = ExitStack()
     try:
@@ -349,7 +363,8 @@ def make_vec(
         ]
         vector_env = ShardedVecEnv(
             factories, envs_per_worker=envs_per_worker, reset_retries=reset_retries, start_method=start_method,
-            step_timeout=step_timeout, step_timeout_reward=step_timeout_reward,
+            step_timeout=step_timeout, step_timeout_reward=step_timeout_reward, reset_timeout=reset_timeout,
+            worker_startup_timeout=worker_startup_timeout,
         )
         if monitor:
             vector_env = RecordEpisodeStatistics(vector_env)

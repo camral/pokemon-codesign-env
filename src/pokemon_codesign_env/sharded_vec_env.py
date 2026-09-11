@@ -59,7 +59,15 @@ def _reset_environment(arguments):
 
 def _sharded_worker(remote, parent_remote, env_fn_wrappers, reset_retries: int) -> None:
     parent_remote.close()
-    envs = [wrapper() for wrapper in env_fn_wrappers]
+    try:
+        envs = [wrapper() for wrapper in env_fn_wrappers]
+        remote.send((True, (envs[0].observation_space, envs[0].action_space)))
+    except BaseException:
+        try:
+            remote.send((False, traceback.format_exc()))
+        finally:
+            remote.close()
+        return
     executor = ThreadPoolExecutor(max_workers=len(envs), thread_name_prefix="battle")
 
     def respond(value) -> None:
@@ -122,7 +130,7 @@ class ShardedVecEnv(VectorEnv):
 
     def __init__(
         self, env_fns: list[Callable[[], gym.Env]], envs_per_worker: int = 32, reset_retries: int = 3, start_method: str = "spawn",
-        step_timeout: float = 60.0, step_timeout_reward: float = 0.0,
+        step_timeout: float = 60.0, step_timeout_reward: float = 0.0, reset_timeout: float = 300.0, worker_startup_timeout: float = 300.0,
     ):
         if not env_fns:
             raise ValueError("ShardedVecEnv requires at least one environment")
@@ -132,12 +140,18 @@ class ShardedVecEnv(VectorEnv):
             raise ValueError("reset_retries must be at least one")
         if step_timeout <= 0:
             raise ValueError("step_timeout must be greater than zero")
+        if reset_timeout <= 0:
+            raise ValueError("reset_timeout must be greater than zero")
+        if worker_startup_timeout <= 0:
+            raise ValueError("worker_startup_timeout must be greater than zero")
         self.waiting = False
         self.closed = False
         self.step_send_failures = {}
         self.reset_retries = reset_retries
         self.step_timeout = step_timeout
         self.step_timeout_reward = step_timeout_reward
+        self.reset_timeout = reset_timeout
+        self.worker_startup_timeout = worker_startup_timeout
         self.context = mp.get_context(start_method)
         self.worker_sizes = tuple(min(envs_per_worker, len(env_fns) - offset) for offset in range(0, len(env_fns), envs_per_worker))
         self.worker_starts = tuple(sum(self.worker_sizes[:index]) for index in range(len(self.worker_sizes)))
@@ -149,8 +163,14 @@ class ShardedVecEnv(VectorEnv):
         self.processes = []
         for worker_index in range(len(self.env_fn_batches)):
             self._start_worker(worker_index)
-        self.remotes[0].send(("get_spaces", None))
-        single_observation_space, single_action_space = self._receive(self.remotes[0])
+        try:
+            startup_results = [
+                self._receive(remote, timeout=self.worker_startup_timeout) for remote in self.remotes
+            ]
+        except Exception as error:
+            self._terminate_workers()
+            raise RuntimeError(f"Could not start all sharded environment workers: {error}") from error
+        single_observation_space, single_action_space = startup_results[0]
         self.num_envs = len(env_fns)
         self.single_observation_space = single_observation_space
         self.single_action_space = single_action_space
@@ -174,6 +194,17 @@ class ShardedVecEnv(VectorEnv):
         else:
             self.remotes[worker_index] = remote
             self.processes[worker_index] = process
+
+    def _terminate_workers(self) -> None:
+        for remote in self.remotes:
+            try:
+                remote.close()
+            except OSError:
+                pass
+        for process in self.processes:
+            if process.is_alive():
+                process.terminate()
+            process.join(timeout=2)
 
     def _restart_worker(self, worker_index: int, reason: str) -> list:
         reset_results = self._restart_worker_for_reset(
@@ -210,8 +241,9 @@ class ShardedVecEnv(VectorEnv):
             self._start_worker(worker_index)
             process = self.processes[worker_index]
             try:
+                self._receive(self.remotes[worker_index], timeout=self.worker_startup_timeout)
                 self.remotes[worker_index].send(("reset", reset_arguments))
-                return self._receive(self.remotes[worker_index], timeout=max(60.0, self.step_timeout))
+                return self._receive(self.remotes[worker_index], timeout=self.reset_timeout)
             except (BrokenPipeError, EOFError, OSError, RuntimeError, TimeoutError) as error:
                 if attempt + 1 == self.reset_retries:
                     raise RuntimeError(f"Could not restart sharded environment worker {worker_index}") from error
@@ -324,9 +356,11 @@ class ShardedVecEnv(VectorEnv):
         # has failed. A reply left in the pipe desynchronises that worker for good: the next
         # command reads this reply instead of its own, and a transient failure that the retries
         # exist to absorb would take the whole vector environment down with it.
+        reset_deadline = time.monotonic() + self.reset_timeout
         for worker_index in submitted:
             try:
-                results[worker_index] = self._receive(self.remotes[worker_index])
+                remaining = max(0.0, reset_deadline - time.monotonic())
+                results[worker_index] = self._receive(self.remotes[worker_index], timeout=remaining)
             except Exception as error:
                 failures[worker_index] = error
         if failures:

@@ -120,6 +120,16 @@ def _default_startup_timeout(shards: int) -> float:
     return max(120.0, 60.0 + 4.0 * shards)
 
 
+def _require_built_showdown(showdown_path: Path) -> None:
+    required = ("dist/sim/dex.js", "dist/data/learnsets.js", "dist/config/custom-formats.js")
+    missing = [name for name in required if not (showdown_path / name).is_file()]
+    if missing:
+        raise RuntimeError(
+            f"Pokemon Showdown at {showdown_path} has not been built; missing {', '.join(missing)}. "
+            "Run pokemon-codesign-install-showdown or codesign-gym-install-showdown before creating environments."
+        )
+
+
 def _create_showdown_runtime(
     showdown_path: Path, port: int, base_dir: str | None = None, dist_source: Path | None = None
 ) -> tuple[tempfile.TemporaryDirectory, Path]:
@@ -176,10 +186,9 @@ def managed_showdown_cluster(enabled: bool, showdown_path: Path, cluster: Showdo
     executable = showdown_path / "pokemon-showdown"
     if not executable.is_file():
         raise FileNotFoundError(f"Pokemon Showdown launcher not found: {executable}")
-    subprocess.run(
-        ["node", "build"], cwd=showdown_path, check=True,
-        stdout=None if verbose else subprocess.DEVNULL, stderr=None if verbose else subprocess.DEVNULL,
-    )
+    # The installer owns the build. Rebuilding here lets independently launched experiments write
+    # the shared dist tree concurrently, so another process can require a half-written module.
+    _require_built_showdown(showdown_path)
     output = None if verbose else subprocess.DEVNULL
     processes = []
     runtimes = []

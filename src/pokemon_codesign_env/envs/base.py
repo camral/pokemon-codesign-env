@@ -17,6 +17,7 @@ from pokemon_codesign_env.configs import FormatConfig, ObservationConfig
 from pokemon_codesign_env.observations import HumanVisibleBattleEncoder
 from pokemon_codesign_env.protocol import install_gen4_protocol_adapter
 from pokemon_codesign_env.team_pool import generate_team_batch, validate_team_batch
+from pokemon_codesign_env.showdown import _poke_env_can_represent
 
 
 class _UnexpectedEffectWarningFilter(logging.Filter):
@@ -57,6 +58,7 @@ class ShowdownRandomTeam(Teambuilder):
         super().__init__()
         self.source_format = source_format
         self.target_format = target_format
+        self.generation = GenData.from_format(target_format).gen
         self.showdown_path = showdown_path
         self.max_attempts = max_attempts
         self.batch_size = max(1, batch_size)
@@ -98,7 +100,8 @@ class ShowdownRandomTeam(Teambuilder):
             except (RuntimeError, ValueError) as error:
                 last_error = error
                 continue
-            valid = [team for team, issue in zip(candidates, problems, strict=True) if issue is None]
+            valid = [team for team, issue in zip(candidates, problems, strict=True) if issue is None
+                and all(_poke_env_can_represent(mon.species or mon.nickname, self.generation) for mon in self.parse_packed_team(team))]
             if valid:
                 self._ready.extend(valid)
                 return

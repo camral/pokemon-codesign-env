@@ -3,9 +3,7 @@ import subprocess
 from functools import lru_cache
 from pathlib import Path
 
-from poke_env.battle.pokemon_type import PokemonType
-from poke_env.data import GenData
-from poke_env.data.normalize import to_id_str
+from poke_env.battle import Pokemon
 
 
 def get_format_rules(format_id: str, showdown_path: Path) -> dict[str, object]:
@@ -215,15 +213,12 @@ def _get_parameter_catalog(
     return _drop_unrepresentable_species(json.loads(result.stdout))
 
 
+@lru_cache(maxsize=None)
 def _poke_env_can_represent(species: str, generation: int) -> bool:
     """Return whether poke-env can build its own view of a species from its pokedex."""
-    entry = GenData.from_gen(generation).pokedex.get(to_id_str(species))
-    if entry is None or "types" not in entry:
-        return False
     try:
-        for pokemon_type in entry["types"]:
-            PokemonType.from_name(pokemon_type)
-    except KeyError:
+        Pokemon(species=species, gen=generation)
+    except (KeyError, TypeError, ValueError):
         return False
     return True
 
@@ -232,8 +227,8 @@ def _drop_unrepresentable_species(catalog: dict) -> dict:
     """Remove species poke-env cannot represent from a Showdown catalog.
 
     Showdown and poke-env ship independent data, and where poke-env's is missing or narrower it
-    raises a KeyError from inside its battle-message handler: an absent pokedex entry, or a type it
-    has no member for, as MissingNo. is typed Bird. That happens on the async task that reads the
+    can fail on missing fields, unknown types, or malformed learnset ancestry. Probe the actual
+    Pokemon constructor so these failures are caught before the async task that reads the
     battle stream, so nothing surfaces the error, the battle simply stops progressing and the run
     only reports it much later as a reset that timed out. Filtering here covers both ways a species
     reaches a battle, since the design space and TeamDesigner's random teams read this one catalog.

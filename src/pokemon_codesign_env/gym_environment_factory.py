@@ -36,7 +36,7 @@ class PokEnv(gymnasium.Env):
     embodiment changes and `step` ignores an embodiment with a warning.
     """
 
-    metadata = {"render_modes": ["human"]}
+    metadata = {"render_modes": ["html"]}
     SUPPORTS_TRANSITION_EMBODIMENT = False
 
     def __init__(
@@ -49,9 +49,15 @@ class PokEnv(gymnasium.Env):
         max_action_space_size: int | None = None,
         showdown_path: Path | None = None,
         team_attempts: int = 1,
+        render_mode: str | None = None,
         **env_kwargs,
     ):
         super().__init__()
+
+        if render_mode not in (None, "html"):
+            raise ValueError(f"unsupported render_mode {render_mode!r}; choose None or 'html'")
+        self.render_mode = render_mode
+        self._replay_html = None
 
         if opponent not in OPPONENTS:
             raise ValueError(f"opponent must be one of {sorted(OPPONENTS)}, got {opponent!r}")
@@ -88,7 +94,7 @@ class PokEnv(gymnasium.Env):
 
         # The wrapped battle environment, which owns the Showdown connection.
         self.observation_encoder = HumanVisibleBattleEncoder.from_showdown(format_config, observation_config=self.observation_config)
-        self.env = self.environment_class(team=self.team_designer,observation_encoder=self.observation_encoder,format_config=format_config,showdown_path=showdown_path,**env_kwargs)
+        self.env = self.environment_class(team=self.team_designer,observation_encoder=self.observation_encoder,format_config=format_config,showdown_path=showdown_path,capture_replay_html=render_mode == "html",**env_kwargs)
 
         # Bound and pad the action space. max_action_space_size exists in the codesign API for
         # environments where designing a different body changes how many actions there are. This
@@ -242,6 +248,7 @@ class PokEnv(gymnasium.Env):
             rejected candidate is worth is the caller's decision. Stepping afterwards raises.
         """
         super().reset(seed=seed)
+        self._replay_html = None
         if seed is not None:
             # Both sides of the battle are drawn from this seed: the designer resolves every random
             # and defaulted attribute of the designed team, and the opponent's team comes from
@@ -323,10 +330,15 @@ class PokEnv(gymnasium.Env):
         # poke-env reads the action as a NumPy scalar when deciding between a plain move and one
         # that mega evolves or terastallizes.
         observation, reward, terminated, truncated, info = self.env.step(np.int64(action))
+        self._replay_html = info.get("replay_html")
         # Gymnasium requires a reset once an episode is over, which PokEnv enforces itself because
         # it is not wrapped in OrderEnforcing.
         self._started = not (terminated or truncated)
         return self._pad_observation(observation), reward, terminated, truncated, info
+
+    def render(self):
+        """Return the HTML replay of the battle completed on the last step, if any."""
+        return self._replay_html if self.render_mode == "html" else None
 
     def close(self) -> None:
         """Close the battle environment and shut down an owned Showdown server."""

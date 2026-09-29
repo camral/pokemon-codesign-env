@@ -181,7 +181,8 @@ class BaselineOpponentEnv(SingleAgentWrapper):
     def __init__(
         self, team=None, battle_format: str | None = None, opponent_team_format: str | None = None,
         observation_config: ObservationConfig | None = None, observation_encoder: HumanVisibleBattleEncoder | None = None,
-        format_config: FormatConfig | None = None, showdown_path: Path | None = None, opponent_team=None, opponent_kwargs: dict | None = None, **env_kwargs,
+        format_config: FormatConfig | None = None, showdown_path: Path | None = None, opponent_team=None,
+        opponent_kwargs: dict | None = None, capture_replay_html: bool = False, **env_kwargs,
     ):
         if team is None:
             raise ValueError("team must contain the co-design agent's designed team")
@@ -193,6 +194,7 @@ class BaselineOpponentEnv(SingleAgentWrapper):
         if opponent_team is None:
             opponent_team = self.make_random_opponent_team()
         self.opponent_team = opponent_team
+        self.capture_replay_html = capture_replay_html
 
         # Showdown rejects a login whose name another live client already holds. poke-env's
         # generated names are a random five character suffix, and 8192 environments need 16384 of
@@ -257,4 +259,9 @@ class BaselineOpponentEnv(SingleAgentWrapper):
 
     def step(self, action):
         observation, reward, terminated, truncated, info = super().step(action)
+        if self.capture_replay_html and (terminated or truncated):
+            battle = self.env.battle1
+            if battle is not None and battle.finished:
+                # Capture before league or vector autoreset replaces this battle.
+                info = {**info, "replay_html": battle._build_replay_html()}
         return self._structured(observation), reward, terminated, truncated, info

@@ -2,8 +2,11 @@
 
 from types import SimpleNamespace
 
+from gymnasium import spaces
+
 from pokemon_codesign_env.envs.base import BaselineOpponentEnv
 from pokemon_codesign_env.envs.pokemon_league_env import LeagueDifficulty, PokemonLeagueEnv
+from pokemon_codesign_env.gym_environment_factory import PokEnv
 from poke_env.environment import SingleAgentWrapper
 
 
@@ -41,3 +44,21 @@ def test_league_carries_replay_into_next_trainer():
     assert not terminated and not truncated
     assert info["replay_html"] == "<!DOCTYPE html>replay"
     assert info["next_battle"] is True
+
+
+def test_pokenv_keeps_latest_replay_across_steps(monkeypatch):
+    env = object.__new__(PokEnv)
+    env.render_mode = "html"
+    env._replay_html = "old replay"
+    env._started = True
+    env._embodiment_rejected = False
+    env.action_space = spaces.Discrete(2)
+    env.natural_action_space_size = 2
+    env.env = SimpleNamespace(step=lambda action: ({}, 0.0, False, False, {}))
+    monkeypatch.setattr(PokEnv, "_pad_observation", lambda self, observation: observation)
+
+    env.step(0)
+    assert env.render() == "old replay"
+    env.env.step = lambda action: ({}, 1.0, True, False, {"replay_html": "new replay"})
+    env.step(0)
+    assert env.render() == "new replay"

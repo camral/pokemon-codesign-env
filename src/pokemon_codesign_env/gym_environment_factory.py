@@ -330,14 +330,15 @@ class PokEnv(gymnasium.Env):
         # poke-env reads the action as a NumPy scalar when deciding between a plain move and one
         # that mega evolves or terastallizes.
         observation, reward, terminated, truncated, info = self.env.step(np.int64(action))
-        self._replay_html = info.get("replay_html")
+        if "replay_html" in info:
+            self._replay_html = info["replay_html"]
         # Gymnasium requires a reset once an episode is over, which PokEnv enforces itself because
         # it is not wrapped in OrderEnforcing.
         self._started = not (terminated or truncated)
         return self._pad_observation(observation), reward, terminated, truncated, info
 
     def render(self):
-        """Return the HTML replay of the battle completed on the last step, if any."""
+        """Return the most recent completed battle's HTML until the caller resets."""
         return self._replay_html if self.render_mode == "html" else None
 
     def close(self) -> None:

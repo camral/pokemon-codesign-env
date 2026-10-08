@@ -34,7 +34,7 @@ import pokemon_codesign_env as pce
 from pokemon_codesign_env.configs import AttributeMode, FormatConfig, SelectionMode, TeamSearchConfig
 
 if __name__ == "__main__":          # required: the env starts worker processes
-    config = TeamSearchConfig(format=FormatConfig.from_showdown("gen4customgame"), team_size=6,
+    config = TeamSearchConfig(format=FormatConfig.from_showdown("gen4customgame"),
                               species=SelectionMode.OPTIMIZED, natures=AttributeMode.OPTIMIZED)
     env, base = pce.make("random", embodiment_config=config)
     design = env.embodiment_space.sample()
@@ -49,6 +49,7 @@ if __name__ == "__main__":          # required: the env starts worker processes
 - The env starts its own Showdown servers and stops them on `close()`.
 - `reset` returns `(obs, info, rejected)` here, but `(obs, rejected, info)` through Codesign Gym.
 - Without `embodiment_config`, nothing is designed and the design is `{}`.
+- A team has 6 Pokémon unless you set `team_size` (fewer if the format allows fewer).
 
 The full API (design space, rejection, flat vectors, vector envs, seeds) is in [docs/codesign_gym_api.md](docs/codesign_gym_api.md).
 

@@ -40,7 +40,7 @@ A reset without a design uses `base_embodiment`.
  "pokemon_1": {...}}
 ```
 
-`TeamSearchConfig` decides what is designed: parameters set to `OPTIMIZED` are part of the design, and the env fills in the rest. Without a config, the design is `{}`.
+`TeamSearchConfig` decides what is designed: parameters set to `OPTIMIZED` are part of the design, and the env fills in the rest. Without a config, the design is `{}`. A team has 6 Pokémon unless `team_size` says otherwise (or the format allows fewer).
 
 `sample()` always returns a member, and `contains()` checks membership.
 

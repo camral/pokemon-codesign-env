@@ -1,18 +1,28 @@
-# Baseline environments
+# Environment classes
 
-These are the reusable baseline environments for `pokemon-codesign-env`. Each combines the shared human-visible observation pipeline with a built-in poke-env opponent. The presets differ only in opponent policy and Showdown format; observation and Gymnasium behavior come from the shared base environment.
+These are the environment classes behind `pce.make` and `pce.make_vec`, which also start a Showdown server for you. Use them directly only when you need more control.
 
-| Environment | Opponent policy | Battle format | Random opponent-team source |
+## Baseline environments
+
+The baseline environments share one observation and differ only in opponent and battle format.
+
+| Class | Opponent | Battle format | Opponent team format |
 | --- | --- | --- | --- |
-| `RandomPlayerEnv` | `SwitchWeightedRandomPlayer` (20% switch probability when moves are available) | `gen4customgame` | `gen4randombattle` |
+| `RandomPlayerEnv` | `SwitchWeightedRandomPlayer` (switches 20% of the time when it could move) | `gen4customgame` | `gen4randombattle` |
 | `MaxBasePowerPlayerEnv` | `MaxBasePowerPlayer` | `gen6customgame` | `gen6randombattle` |
 | `SimpleHeuristicsPlayerEnv` | `SimpleHeuristicsPlayer` | `gen9customgame` | `gen9randombattle` |
 
-The co-design agent supplies its designed team through `team`. Unless `opponent_team` is supplied, Showdown generates a fresh random opponent team before every battle and validates it against the battle format.
+Your team goes in `team`. Unless you pass `opponent_team`, Showdown generates a fresh random opponent team before every battle.
 
-## Usage
+### Use
 
-Start Pokemon Showdown, then create an environment like any Gymnasium environment:
+Used directly, the classes expect a Showdown server on port 8000:
+
+```bash
+node pokemon-showdown/pokemon-showdown start --no-security
+```
+
+Then:
 
 ```python
 import numpy as np
@@ -35,11 +45,11 @@ while not terminated and not truncated:
 env.close()
 ```
 
-Each observation is a Gymnasium `Dict` containing `categorical`, `continuous`, `binary`, and `action_mask`.
+Observations are a Gymnasium `Dict` of `categorical`, `continuous`, `binary` and `action_mask`.
 
-## Format configuration
+### Format
 
-The class attributes define each baseline's format:
+Each baseline's format comes from its class attributes:
 
 ```python
 class MaxBasePowerPlayerEnv(BaselineOpponentEnv):
@@ -48,11 +58,11 @@ class MaxBasePowerPlayerEnv(BaselineOpponentEnv):
     OPPONENT_CLASS = MaxBasePowerPlayer
 ```
 
-- `BATTLE_FORMAT` is the team-supplied format used for the actual battle.
-- `OPPONENT_TEAM_FORMAT` is a compatible Showdown format with a native random-team generator.
-- `OPPONENT_CLASS` selects the fixed baseline control policy.
+- `BATTLE_FORMAT`: the team-supplied format the battle is played in.
+- `OPPONENT_TEAM_FORMAT`: a compatible format with a random-team generator, used for the opponent.
+- `OPPONENT_CLASS`: the opponent's policy.
 
-The format can be overridden at construction time when needed:
+You can override the format at construction:
 
 ```python
 format_config = FormatConfig.from_showdown("gen7ou")
@@ -60,19 +70,21 @@ learner_team = TeamDesigner(TeamSearchConfig(format=format_config))
 env = MaxBasePowerPlayerEnv(team=learner_team, battle_format="gen7ou", opponent_team_format="gen7battlefactory")
 ```
 
-`team` is required and accepts a packed team or `TeamDesigner`. `opponent_team` can replace automatic random generation. Remaining keyword arguments are forwarded to `SinglesEnv`; `observation_config` still customizes the shared observation pipeline without changing the baseline preset.
+`team` is required and takes a packed team or a `TeamDesigner`. `opponent_team` replaces the random opponent team, `observation_config` customizes the observation, and any other keyword arguments go to `SinglesEnv`.
 
-## Pokemon League environments
+## Pokémon League environments
 
-`PokemonLeagueEnv` provides one configurable League task for every generation. One episode contains all four League opponents followed by the Champion, each controlled by `SimpleHeuristicsPlayer`. Winning a battle advances directly to the next trainer; losing or defeating the Champion ends the episode. Each League format bans future-generation Pokemon, so `TeamDesigner.get_parameter_space("species")` automatically contains only Pokemon introduced in that generation or earlier. The same restriction applies to manually submitted teams during Showdown validation.
+`PokemonLeagueEnv` runs one generation's League: an episode faces the four Elite Four trainers and then the Champion, all played by `SimpleHeuristicsPlayer`. A win moves on to the next trainer; a loss, or beating the Champion, ends the episode.
 
-Install the packaged formats once before starting Showdown:
+Each League format bans Pokémon from later generations, so `TeamDesigner`'s species space only holds Pokémon up to that generation, and Showdown enforces the same rule on teams you submit.
+
+Install the League formats once before starting Showdown:
 
 ```bash
 pokemon-codesign-install-showdown /path/to/pokemon-showdown
 ```
 
-The installer adds `config/pokemon-codesign-formats.ts` through Showdown's supported custom-format loader and builds the server. No simulator source files are modified. An existing unrelated `config/custom-formats.ts` is never overwritten; import `Formats` from `./pokemon-codesign-formats` and spread it into that file's `Formats` array when prompted.
+This adds `config/pokemon-codesign-formats.ts` and builds the server without touching simulator files. If you already have a `config/custom-formats.ts`, it is left alone and you are told to import `Formats` from `./pokemon-codesign-formats` and spread it into that file's `Formats` array.
 
 ```python
 from pokemon_codesign_env.configs import FormatConfig, TeamSearchConfig
@@ -85,7 +97,9 @@ learner_team = TeamDesigner(TeamSearchConfig(format=format_config, team_size=6))
 env = PokemonLeagueEnv(team=learner_team, generation=4, difficulty=0)
 ```
 
-Set `random_league=True` and omit `generation` to sample one League at the start of every episode. The selected League remains fixed for all five battles. Random-League episodes use the Generation 9 League format so every Pokemon is available and the Gymnasium spaces remain identical across episodes:
+### Random League
+
+With `random_league=True` and no `generation`, each episode samples a League and keeps it for all five battles. These episodes use the Gen 9 League format, so every Pokémon is available and the spaces stay the same:
 
 ```python
 format_config = FormatConfig.from_showdown(PokemonLeagueEnv.RANDOM_BATTLE_FORMAT)
@@ -93,9 +107,22 @@ learner_team = TeamDesigner(TeamSearchConfig(format=format_config, team_size=6))
 env = PokemonLeagueEnv(team=learner_team, random_league=True, difficulty=0)
 ```
 
-`difficulty=0` heals the designed team before every trainer. `difficulty=1` carries current HP, fainted Pokemon, non-volatile status, move PP, and lost held items into the next battle. The state is encoded in the standard packed-team Poké Ball metadata and restored by the custom format; this metadata field is therefore reserved for hard League tasks. Temporary battle effects such as stat changes, weather, volatile status, Mega Evolution, Dynamax, and Terastallization reset normally. The observation contains a `league` `MultiDiscrete` value with the current trainer index, number of trainers remaining, and difficulty, plus `league_generation`, which identifies the selected League.
+### Difficulty
 
-`PokemonLeagueBattleEnv` remains available for experiments that need an isolated battle against one named trainer:
+| `difficulty` | Between trainers |
+|---|---|
+| `0` | The team is fully healed. |
+| `1` | HP, fainted Pokémon, non-volatile status, move PP and lost held items carry over. |
+
+Difficulty 1 stores this state in the packed team's Poké Ball field, so that field is reserved in hard League tasks. Temporary effects (stat changes, weather, volatile status, Mega Evolution, Dynamax, Terastallization) reset as usual.
+
+### Observation
+
+League observations add `league`, a `MultiDiscrete` of the current trainer index, trainers remaining and difficulty, and `league_generation`, the League's generation.
+
+### One battle
+
+For a single battle against one named trainer, use `PokemonLeagueBattleEnv`:
 
 ```python
 from pokemon_codesign_env.envs import PokemonLeagueBattleEnv
@@ -103,9 +130,9 @@ from pokemon_codesign_env.envs import PokemonLeagueBattleEnv
 env = PokemonLeagueBattleEnv(team=learner_team, generation=4, opponent="Cynthia")
 ```
 
-The available presets are:
+### Leagues
 
-| Generation | Game | League opponents |
+| Generation | Game | Trainers |
 | --- | --- | --- |
 | 1 | Red/Blue | Lorelei, Bruno, Agatha, Lance, Blue |
 | 2 | Crystal | Will, Koga, Bruno, Karen, Lance |
@@ -117,10 +144,17 @@ The available presets are:
 | 8 | Sword Champion Cup | Bede, Nessa, Bea, Raihan, Leon |
 | 9 | Scarlet/Violet | Rika, Poppy, Larry, Hassel, Geeta |
 
-The trainer teams reproduce the selected games' species order, levels, moves, abilities, held items, natures, genders, EVs, and IVs. Generation I and II use the games' fixed trainer DVs converted to Showdown IVs and zero stat experience; fields that did not exist yet remain unset. Starter-dependent Champions use one documented representative team. Mega Evolution, Z-Moves, Gigantamax, and Terastallization are retained where applicable. Galar has no Elite Four, so its four final Champion Cup opponents occupy the equivalent slots.
+### Trainer data
 
-The packed Showdown representation follows the standard stat order: HP, Attack, Defense, Special Attack, Special Defense, Speed. A game's implicit or uniform trainer values are still stored on every `LeaguePokemon`, so inspecting `get_pokemon_league(generation)` returns the complete opponent configuration without relying on random-battle fallbacks.
+Trainer teams reproduce the games' species order, levels, moves, abilities, held items, natures, genders, EVs and IVs. Gen 1 and 2 convert the fixed trainer DVs to Showdown IVs with zero stat experience, and leave fields that didn't exist yet unset. Starter-dependent Champions use one representative team. Mega Evolution, Z-moves, Gigantamax and Terastallization are kept where they apply, and Galar, which has no Elite Four, uses its last four Champion Cup opponents instead.
 
-The configurations live in `envs/leagues/gen1.json` through `gen9.json`. Each file contains the League metadata, its ordered trainers, and every Pokemon field. `pokemon_league_env.py` parses these files into the immutable `PokemonLeague`, `LeagueTrainer`, and `LeaguePokemon` objects used by the environment.
+Packed teams use the standard stat order (HP, Attack, Defense, Special Attack, Special Defense, Speed). Every `LeaguePokemon` stores all its values, implicit ones included, so `get_pokemon_league(generation)` returns the complete opponent configuration.
 
-The data comes from game-derived sources rather than competitive sets: the `pret` disassemblies for [Red/Blue](https://github.com/pret/pokered), [Crystal](https://github.com/pret/pokecrystal), and [Emerald](https://github.com/pret/pokeemerald); the [PokeFeur vanilla ROM exports](https://github.com/JonatanUHC/PokeFeur) for the later games; and the [Project Pokemon USUM trainer dump](https://projectpokemon.org/research/usum/trainers.txt) for Ultra Sun/Ultra Moon's per-stat IV and EV values. Values derived by the game engine, such as early-generation DVs and deterministic natures, are converted to their equivalent Showdown fields.
+The data lives in `envs/leagues/gen1.json` to `gen9.json`, which `pokemon_league_env.py` parses into `PokemonLeague`, `LeagueTrainer` and `LeaguePokemon` objects.
+
+Sources (game data, not competitive sets):
+- the `pret` disassemblies for [Red/Blue](https://github.com/pret/pokered), [Crystal](https://github.com/pret/pokecrystal) and [Emerald](https://github.com/pret/pokeemerald);
+- the [PokeFeur vanilla ROM exports](https://github.com/JonatanUHC/PokeFeur) for later games;
+- the [Project Pokemon USUM trainer dump](https://projectpokemon.org/research/usum/trainers.txt) for Ultra Sun/Ultra Moon IVs and EVs.
+
+Engine-derived values such as early DVs and deterministic natures are converted to their Showdown equivalents.

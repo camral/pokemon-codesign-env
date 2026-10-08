@@ -1,54 +1,37 @@
-# The codesign Gymnasium API
+# The Co-design Gymnasium API
 
-This environment extends the Gymnasium API with embodiment design. A standard Gymnasium
-environment exposes an observation space and an action space; a codesign environment adds a third,
-the **embodiment space** &Theta;, and lets you choose a point in it when you reset.
+This is a Gymnasium environment with one extra space, the **embodiment space** &Theta;, whose points are team designs. You pass a design to `reset`.
 
 ```python
 import pokemon_codesign_env as pce
 
-env, base_embodiment = pce.make("random")      # launches its own Showdown server
-design = env.embodiment_space.sample()
-observation, info, embodiment_rejected = env.reset(seed=0, embodiment=design)
-env.close()                                    # stops the server it launched
+if __name__ == "__main__":
+    env, base_embodiment = pce.make("random", embodiment_config=config)   # starts its own Showdown server
+    design = env.embodiment_space.sample()
+    obs, info, embodiment_rejected = env.reset(seed=0, embodiment=design)
+    env.close()                                                           # stops the server
 ```
 
-## What is added
+`config` is defined in the [README quick start](../README.md#quick-start).
 
-| | |
-| --- | --- |
-| `env.embodiment_space` | the design space &Theta;, a `gymnasium.Space` |
-| `make(..., is_eval_env=, max_action_space_size=)` | evaluation mode, and a bound on the action space |
-| `make()` -> `(env, base_embodiment)` | the design the environment starts from |
-| `env.reset(..., embodiment=)` -> `(obs, info, embodiment_rejected)` | the design to battle with, and whether it was taken |
-| `env.step(action, embodiment=)` | ignored with a warning here, see *Transition-level changes* |
-| `env.validate_embodiment(e)` -> `bool` | ask Showdown whether a design can actually be built |
-| `env.validate_embodiments([...])` | the same question for a whole population, batched |
+## Changes to Gymnasium
 
-`is_eval_env` marks an environment that must not have its embodiment changed during evaluation.
+| Item | Change |
+|---|---|
+| `env.embodiment_space` | The design space &Theta;, a `gymnasium.Space`. |
+| `make(...)` | Returns `(env, base_embodiment)`; `make_vec` returns one base design per env. |
+| `make(..., is_eval_env=True)` | Marks an evaluation env, whose design must not change. |
+| `make(..., max_action_space_size=N)` | Pads the action space to `N` (see [Action space](#action-space)). |
+| `env.reset(..., embodiment=)` | Returns `(obs, info, embodiment_rejected)`. |
+| `env.step(action, embodiment=)` | Ignores the design with a warning (see [Design changes in step](#design-changes-in-step)). |
+| `env.validate_embodiment(e)` | Returns whether Showdown can build the design. |
+| `env.validate_embodiments([...])` | The same check for a batch, returning one reason (or `None`) per design. |
 
-`base_embodiment` is the design the environment starts from, chosen once when it is created. A
-reset given no design falls back to it, so returning to a known state is a matter of resetting with
-it again. `make_vec` returns one per environment, in order.
+A reset without a design uses `base_embodiment`.
 
-`max_action_space_size` belongs to the codesign API rather than to this environment. It exists for
-environments whose action space depends on the embodiment, where designing a different body changes
-how many actions there are. Pokemon is not one of them: the action space is fixed by the
-generation, and a team always has six switch slots whether three Pokemon are designed or six, so a
-design can never change its size. Gen 1&ndash;5 use 10 actions, Gen 6 14, Gen 7 18, Gen 8 22, and
-Gen 9 26.
+## The design space
 
-It is still accepted, and does two things here. A format needing more actions than the bound raises.
-A format needing fewer has its action space padded up to the bound, with the extra actions masked
-illegal in every observation, which lets one policy span formats of different generations. The
-padded indices are the later generations' mechanics, so their meaning is consistent: 10&ndash;13
-mega evolve, 14&ndash;17 Z-moves, 18&ndash;21 Dynamax, 22&ndash;25 Terastallize. A Generation 4
-battle simply never offers them. Leaving it unset is the normal case and pads nothing.
-
-## The embodiment space
-
-`embodiment_space` is a `gymnasium.spaces.Dict` whose members are exactly the dictionaries the
-team compiler accepts:
+`embodiment_space` is a `gymnasium.spaces.Dict` whose members are team dictionaries:
 
 ```python
 {"pokemon_0": {"species": "Garchomp", "nature": "Jolly",
@@ -57,132 +40,101 @@ team compiler accepts:
  "pokemon_1": {...}}
 ```
 
-Which parameters appear is decided by `TeamSearchConfig`: only those set to `OPTIMIZED` are
-designed, and the rest are resolved by the environment. `sample()` always returns a member, and
-`contains()` decides membership.
+`TeamSearchConfig` decides what is designed: parameters set to `OPTIMIZED` are part of the design, and the env fills in the rest. Without a config, the design is `{}`.
 
-Three constraints in &Theta; have no equivalent in the stock Gymnasium spaces, which is why the
-leaf spaces are custom: an EV allocation is capped per stat **and** by a shared budget; `moves`,
-`ability`, `gender` and `tera_type` are only legal for particular species; and poke-env identifies
-Pokemon by fuzzy name matching, so a team whose species cannot be told apart produces corrupted
-observations even though Showdown accepts it.
+`sample()` always returns a member, and `contains()` checks membership.
+
+The leaf spaces are custom because &Theta; has three constraints stock Gymnasium spaces can't express:
+- EVs are capped per stat **and** by a shared budget.
+- `moves`, `ability`, `gender` and `tera_type` are only legal for certain species.
+- poke-env matches Pokémon by fuzzy name, so species it can't tell apart corrupt the observations even when Showdown accepts the team.
 
 ## Rejection
 
-`reset` reports a design it cannot battle with rather than raising, because a design an optimizer
-proposed is data, not a programming error. What a rejected candidate is worth is the optimizer's
-decision, not the environment's:
+`reset` reports a design it can't use instead of raising, and leaves it to your optimizer to decide what a rejected design is worth.
 
 ```python
-observation, info, embodiment_rejected = env.reset(seed=0, embodiment=candidate)
+obs, info, embodiment_rejected = env.reset(seed=0, embodiment=candidate)
 if embodiment_rejected.any():
     optimizer.tell(candidate, my_rejection_loss)
     print(info["embodiment_rejection_reason"])
     # pokemon_0: Alcremie-Ruby-Cream has no legal moves 'Absorb'
 ```
 
-`embodiment_rejected` holds one flag per environment and is also in the info, alongside the reason.
-A rejected reset returns a zero observation with a single legal action, so a masked policy still
-forms a distribution over it. Stepping an environment whose design was rejected raises: it never
-started a battle.
+- `embodiment_rejected` has one flag per env and is also in `info`, along with the reason.
+- A rejected reset returns a zero observation with one legal action, so a masked policy still works.
+- Stepping after a rejection raises, since no battle was started.
 
-There are two separate questions about a design, and they cost very different amounts:
+The two checks differ a lot in cost:
 
 ```python
-env.embodiment_space.contains(design)   # ~45 us   is it in Theta?
-env.validate_embodiment(design)         # ~236 ms  will Showdown build it?      -> bool
-env.validate_embodiments(population)    # ~18 ms each, batched                  -> reasons
+env.embodiment_space.contains(design)   # ~45 us   Is it in Theta?
+env.validate_embodiment(design)         # ~236 ms  Can Showdown build it?   -> bool
+env.validate_embodiments(population)    # ~18 ms each, in a batch          -> reasons
 ```
 
-The second is not implied by the first. `contains` judges each parameter on its own, so it cannot
-see that two moves are individually legal for a species but not learnable *together*: Showdown
-rejects Arbok holding both Body Slam and Disable, because no single Arbok could have been on both
-acquisition paths. Only Showdown settles that, so screen candidates with `validate_embodiments`
-before spending episodes on them.
+Passing `contains` doesn't guarantee passing `validate_embodiment`, because `contains` checks each parameter on its own. Two moves can each be legal for a species but not together; Showdown rejects Arbok with both Body Slam and Disable, for example. Screen candidates with `validate_embodiments` before spending episodes on them.
 
-## The flat representation
+## Flat vectors
 
-Optimizers usually want a fixed-width vector rather than a dictionary. `flat_space` is a
-`MultiDiscrete` view, and `to_index` / `from_index` convert:
+For optimizers that want a fixed-width vector, `flat_space` is a `MultiDiscrete` view of the design space, with `to_index` and `from_index` to convert:
 
 ```python
-row = env.embodiment_space.to_index(design)        # -> (embodiment_dim,) of int64
+row = env.embodiment_space.to_index(design)        # -> (embodiment_dim,) int64
 design = env.embodiment_space.from_index(row)      # exact inverse, or raises
 ```
 
-`from_index(to_index(design)) == design` always. Decoding is **strict**: a point that names no
-design raises rather than being adjusted into a nearby one, so the design battled is always the
-design proposed.
+`from_index(to_index(design)) == design` always holds. Decoding is strict: a vector that isn't a legal design raises rather than being nudged to a nearby one, so the env always battles the design you proposed.
 
-That matters because `flat_space` is a *box* and &Theta; is a strict subset of it. A box cannot
-say that EVs share a budget, that species must be distinguishable, or that a move must come from
-the pool of the species beside it. For a six-Pokemon Gen 9 design the box holds about 10<sup>180</sup>
-points and &Theta; about 10<sup>59</sup> of them, so uniformly sampling the box essentially never
-lands on a design. Sample &Theta; directly with `sample()` and mutate from there; rejection costs
-about 50&nbsp;us and never reaches Showdown.
+`flat_space` is a box, and &Theta; is a tiny part of it: a box can't express the EV budget, the species-name rule or which moves a species learns. For six Gen 9 Pokémon the box holds about 10<sup>180</sup> points and &Theta; about 10<sup>59</sup>, so uniform samples from the box are almost never legal. Sample &Theta; with `sample()` and mutate from there; a `contains` rejection costs about 50 µs and never reaches Showdown.
 
-A vector environment takes a whole population at once:
+## Vector environments
 
 ```python
-vec = pce.make_vec("random", num_envs=64)
+import numpy as np
+
+vec, bases = pce.make_vec("random", num_envs=64, embodiment_config=config)
+space = pce.TeamDesignSpace(config)                                     # the vector env has no embodiment_space
 batch = np.stack([space.to_index(space.sample()) for _ in range(64)])   # (num_envs, embodiment_dim)
-observations, infos, rejected = vec.reset(embodiment=batch)             # (num_envs,) of bool
+obs, infos, rejected = vec.reset(embodiment=batch)                      # rejected: (num_envs,) bool
 ```
 
-`reset` accepts a `(num_envs, embodiment_dim)` array or a sequence of dictionaries for one design
-per environment, and a single array row or dictionary to give every environment the same design.
-Omitting it keeps whatever is installed, which is what the automatic reset after a finished
-episode relies on.
-
-The vector environment is a `gymnasium.vector.VectorEnv`, so it returns what the single environment
-returns: `reset` gives `(observations, infos)` and `step` gives observations, rewards,
-terminations, truncations and infos. Infos are Gymnasium's vectorized form, one array per key, so a
-rejection is read straight off `infos["embodiment_rejected"]`. Finished environments are reset
-inside the step that ended them, which the environment declares as
-`metadata["autoreset_mode"] = AutoresetMode.SAME_STEP`; the observation that ended an episode
-arrives as `infos["final_obs"]`.
-
-An environment whose design was rejected never started a battle, so stepping the vector refuses
-outright rather than simulating nothing:
+- `reset` takes a `(num_envs, embodiment_dim)` array or a list of dictionaries (one design per env), a single row or dictionary (shared by all envs), or nothing (each env keeps its current design, as autoreset does).
+- `reset` returns `(obs, infos, rejected)`. `step` returns `(obs, rewards, terminations, truncations, infos)`.
+- `infos` holds one array per key, as in Gymnasium, including `infos["embodiment_rejected"]`.
+- A finished env resets within the same `step` (`AutoresetMode.SAME_STEP`), with the last observation in `infos["final_obs"]`.
+- `step` refuses to run while any env has a rejected design:
 
 ```
 RuntimeError: environments [1] were given an embodiment that was rejected, so they have no battle
 to step; reset them with designs this environment accepts
 ```
 
-Stable-Baselines3 expects its own vector interface. `examples/utils.py` has an `SB3VecEnvAdapter`
-that translates, so the benchmark itself depends on no training framework.
+For Stable-Baselines3, wrap the env with `SB3VecEnvAdapter` from `examples/utils.py`; the environment itself depends on no training framework.
 
-## Choosing a coordinate system
+## Coordinate systems
 
-Indices are resolved against the **union** of a parameter's values, so an index names the same
-move whatever species sits beside it, and an illegal pairing is reported as one:
+Indices refer to the **union** of a parameter's values, so an index means the same move for every species, and an illegal pairing is reported as such:
 
 ```
 union[157] = 'Energy Ball'      for every species
 pokemon_0: Lilligant-Hisui has no legal ability 'Sweet Veil'
 ```
 
-The alternative is to index each species' own legal list, so index 5 means *the 5th move this
-species can learn*. Both reach exactly the same &Theta; &mdash; they are two coordinate systems on
-one design space, not two design spaces &mdash; and they trade off against each other:
+The alternative is a **species-relative** index, where index 5 means the 5th move this species can learn. Both describe the same &Theta;; they are just different coordinates on it.
 
-| | union (canonical) | species-relative |
+| | union (default) | species-relative |
 | --- | --- | --- |
 | meaning of an index | fixed | changes with the species |
-| mutating a move index | ~91% rejected | more often legal |
-| crossover | usually infeasible offspring | feasible offspring, but moves are reinterpreted |
-| what a rejection means | "this species cannot learn this move" | often just "index past this species' pool" |
+| change one move index | ~91% rejected | legal more often |
+| crossover | children are usually not legal | children are legal, but moves change meaning |
+| a rejection means | "this species cannot learn this move" | often "index is past the end of this species' list" |
 
-The environment ships the union form because a rejection then carries information, and because a
-fixed coordinate system keeps results comparable across methods. Neither form is dense once
-projection is off: a `MultiDiscrete` slot needs one fixed width, and legal move pools range from 1
-to 232 values, so any single width leaves most points outside &Theta;.
+The env uses union indices because a rejection then carries information and fixed coordinates keep results comparable across methods. Neither form is dense, since a `MultiDiscrete` slot has one width while move lists range from 1 to 232 values.
 
-### Converting between them
+### Convert between them
 
-Both directions need only `legal_values`, which is public. Species-relative to union is total and
-injective; union to species-relative is partial, defined exactly where the pairing is legal.
+Both directions need only the public `legal_values`. Species-relative to union always works; union to species-relative only works for legal pairs.
 
 ```python
 def union_values(space, param):
@@ -190,13 +142,13 @@ def union_values(space, param):
 
 
 def to_union(space, param, species, relative_index):
-    """Species-relative index -> union index. Total and injective."""
+    """Species-relative index -> union index. Always defined."""
     value = space.legal_values(param, species)[relative_index]
     return union_values(space, param).index(value)
 
 
 def to_species_relative(space, param, species, union_index):
-    """Union index -> species-relative index. None when the pairing is illegal."""
+    """Union index -> species-relative index. None when the pair is illegal."""
     value = union_values(space, param)[union_index]
     legal = space.legal_values(param, species)
     return legal.index(value) if value in legal else None
@@ -211,47 +163,42 @@ union index 5 = 'Acrobatics' -> None            (Garchomp cannot learn it)
 species-relative index 5 = 'Bulldoze' -> union 65
 ```
 
-Wrap those in a `gymnasium.Wrapper` over `embodiment_space` to search in whichever coordinates
-suit your designer. &Theta; is unchanged either way, so results stay comparable.
+To search in species-relative coordinates, wrap these in a `gymnasium.Wrapper` over `embodiment_space`. &Theta; is unchanged, so results stay comparable.
+
+## Action space
+
+The generation fixes the action space size, and since a team always has six switch slots, the design never changes it.
+
+| Generation | Actions |
+|---|---|
+| 1–5 | 10 |
+| 6 | 14 |
+| 7 | 18 |
+| 8 | 22 |
+| 9 | 26 |
+
+`max_action_space_size` is optional and pads nothing when unset. A format that needs more actions than the limit raises; one that needs fewer is padded up to it, with the extra actions masked illegal. This lets one policy play several generations. Padded indices mean the same thing everywhere: 10–13 Mega Evolution, 14–17 Z-moves, 18–21 Dynamax, 22–25 Terastallize.
 
 ## Stepping
 
-`step(action, embodiment=None)` takes one battle action and returns observation, reward,
-termination, truncation and info, as any Gymnasium environment does. It refuses rather than
-simulating something meaningless in three cases: before the first `reset`, after a `reset` whose
-design was rejected, and for an action in the padded part of the action space, which is masked
-illegal in every observation and so can only be reached by ignoring the mask.
+`step(action, embodiment=None)` plays one battle action and returns the usual five values. It raises before the first `reset`, after a rejected reset, and for a padded action (which only happens if you ignore the mask).
 
-## Transition-level changes
+## Design changes in step
 
-Some codesign environments allow the embodiment to change between transitions. This one does not:
-the team is fixed once a battle begins, so `PokEnv.SUPPORTS_TRANSITION_EMBODIMENT` is `False` and
-`step(action, embodiment=...)` warns and ignores the embodiment. Change a design at `reset`.
+The team is fixed once a battle starts, so `PokEnv.SUPPORTS_TRANSITION_EMBODIMENT` is `False` and `step(action, embodiment=...)` ignores the design with a warning. Change designs at `reset`.
 
-## Seeding
+## Seeds
 
-`reset(seed=...)` fixes both teams. The designer resolves every random and defaulted attribute of
-the designed team from it, and the opponent's team comes from Showdown's generator, which is given
-a seed drawn from the same stream. Two runs with the same seed therefore start from the same
-position:
+`reset(seed=...)` fixes both teams: it resolves every random or default value in your team, and seeds Showdown's opponent-team generator from the same stream. Two runs with the same seed therefore start from the same position:
 
 ```python
-observation, info, rejected = env.reset(seed=42, embodiment=design)
+obs, info, rejected = env.reset(seed=42, embodiment=design)
 ```
 
-It seeds a *stream* rather than freezing a team: consecutive battles in one run still face
-different opponents, and the whole sequence repeats when the seed does.
-
-What a seed does not fix is the battle itself. Damage rolls, critical hits and speed ties are the
-Showdown server's own, and are not reachable from here, so a seed reproduces the matchup rather
-than the outcome.
+The seed starts a *stream*: battles within a run still face different opponents, and the whole sequence repeats with the same seed. It doesn't fix the outcome, though. Damage rolls, critical hits and speed ties come from the Showdown server, so a seed reproduces the match-up, not the result.
 
 ## Servers
 
-`make` and `make_vec` launch the Pokemon Showdown servers their environments need and shut them
-down when the environment is closed. There is no option to attach to a server someone else
-started: ports are claimed from the operating system so concurrent runs never collide, and a
-`base_port` you force is an error if anything already holds it.
+`make` and `make_vec` start the Showdown servers they need, and `close()` stops them. There is no option to attach to your own server: ports come from the operating system so concurrent runs never collide, and a forced `base_port` that is already taken raises.
 
-`make_vec` launches one shard per `envs_per_shard` environments (32 by default) and spreads the
-workers over them round-robin.
+`make_vec` starts one shard per `envs_per_shard` envs (default 32) and spreads workers across them round-robin.

@@ -12,13 +12,13 @@ started: ports are claimed from the operating system, so concurrent runs never c
 
 import random
 import socket
+import time
 from contextlib import ExitStack
 from math import ceil
 from pathlib import Path
 
 import numpy as np
 from gymnasium.vector import VectorWrapper
-from gymnasium.wrappers.vector import RecordEpisodeStatistics
 
 from pokemon_codesign_env.configs import FormatConfig, ObservationConfig, TeamSearchConfig
 from pokemon_codesign_env.gym_environment_factory import PokEnv
@@ -206,6 +206,48 @@ def make(
     return env, env.base_embodiment
 
 
+class SameStepEpisodeStatistics(VectorWrapper):
+    """Episode return, length and wall time in ``info["episode"]`` (``"r"``, ``"l"``, ``"t"``) on the step an episode
+    ends, with the ``info["_episode"]`` mask, as Gymnasium's ``RecordEpisodeStatistics`` writes them.
+
+    That wrapper starts counting a finished environment's new episode on the step after it ended, which suits
+    NEXT_STEP autoreset. These environments reset within the step that ended the episode (SAME_STEP), so the next
+    step is already part of the new episode: here the count restarts right after the ending step is recorded.
+    """
+
+    def __init__(self, env, stats_key: str = "episode"):
+        super().__init__(env)
+        self._stats_key = stats_key
+        self._zero()
+
+    def _zero(self) -> None:
+        self.episode_returns = np.zeros(self.num_envs)
+        self.episode_lengths = np.zeros(self.num_envs, dtype=int)
+        self.episode_start_times = np.full(self.num_envs, time.perf_counter())
+
+    def reset(self, *, seed=None, options=None):
+        result = self.env.reset(seed=seed, options=options)
+        self._zero()
+        return result
+
+    def step(self, actions):
+        observations, rewards, terminations, truncations, infos = self.env.step(actions)
+        self.episode_returns += np.asarray(rewards, dtype=float)
+        self.episode_lengths += 1
+        dones = np.logical_or(terminations, truncations)
+        if dones.any():
+            if self._stats_key in infos or f"_{self._stats_key}" in infos:
+                raise ValueError(f"info already has the key {self._stats_key!r}: {list(infos)}")
+            now = time.perf_counter()
+            infos[self._stats_key] = {"r": np.where(dones, self.episode_returns, 0.0), "l": np.where(dones, self.episode_lengths, 0),
+                                      "t": np.where(dones, np.round(now - self.episode_start_times, 6), 0.0)}
+            infos[f"_{self._stats_key}"] = dones
+            self.episode_returns[dones] = 0.0
+            self.episode_lengths[dones] = 0
+            self.episode_start_times[dones] = now
+        return observations, rewards, terminations, truncations, infos
+
+
 class ServerOwningVecEnv(VectorWrapper):
     """A vector environment that shuts down the Showdown servers it was launched with."""
 
@@ -367,7 +409,7 @@ def make_vec(
             worker_startup_timeout=worker_startup_timeout,
         )
         if monitor:
-            vector_env = RecordEpisodeStatistics(vector_env)
+            vector_env = SameStepEpisodeStatistics(vector_env)
         owning_env = ServerOwningVecEnv(vector_env, stack, cluster)
         base_embodiments = owning_env.env.unwrapped.get_attr("base_embodiment")
     except BaseException:

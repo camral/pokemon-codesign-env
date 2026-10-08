@@ -121,7 +121,48 @@ class HumanVisibleSinglesEnv(SinglesEnv):
         self.observation_spaces = {agent: observation_encoder.observation_space for agent in self.possible_agents}
 
     def calc_reward(self, battle: AbstractBattle) -> float:
-        return self.reward_computing_helper(battle, fainted_value=2.0, hp_value=1.0, victory_value=10.0, number_of_pokemons=max(1, battle.team_size))
+        return self._state_reward(battle, fainted_value=2.0, hp_value=1.0, victory_value=10.0)
+
+    @staticmethod
+    def _team_sizes(battle: AbstractBattle) -> tuple[int, int]:
+        """(own, opponent) team sizes, each side's own: the teams may differ in size, e.g. a designed team of 6
+        against a League trainer with 5. Showdown announces both at the start of the battle."""
+        own = max(1, battle.team_size)
+        opponent = battle._team_size.get(battle.opponent_role) if battle.opponent_role else None
+        return own, max(1, int(opponent) if opponent else max(own, len(battle.opponent_team)))
+
+    def _state_reward(self, battle: AbstractBattle, *, fainted_value: float, hp_value: float, victory_value: float) -> float:
+        """poke-env's ``reward_computing_helper`` (fainted, HP and victory terms, paid as the change in state value),
+        with each side's unrevealed Pokemon counted against that side's own team size."""
+        own_size, opponent_size = self._team_sizes(battle)
+        if battle not in self._reward_buffer:
+            self._reward_buffer[battle] = 0.0
+        value = 0.0
+        for mon in battle.team.values():
+            value += mon.current_hp_fraction * hp_value - (fainted_value if mon.fainted else 0.0)
+        value += (own_size - len(battle.team)) * hp_value
+        for mon in battle.opponent_team.values():
+            value -= mon.current_hp_fraction * hp_value - (fainted_value if mon.fainted else 0.0)
+        value -= (opponent_size - len(battle.opponent_team)) * hp_value
+        if battle.won:
+            value += victory_value
+        elif battle.lost:
+            value -= victory_value
+        reward = value - self._reward_buffer[battle]
+        self._reward_buffer[battle] = value
+        return reward
+
+    @staticmethod
+    def calc_term_trunc(battle: AbstractBattle):
+        """poke-env's rule (terminated when exactly one side has no Pokemon left, truncated for any other finish), with
+        each side counted against its own team size, so a win over a smaller team is a termination."""
+        if not battle.finished:
+            return False, False
+        own_size, opponent_size = HumanVisibleSinglesEnv._team_sizes(battle)
+        own_left = own_size - sum(mon.fainted for mon in battle.team.values())
+        opponent_left = opponent_size - sum(mon.fainted for mon in battle.opponent_team.values())
+        terminated = (own_left == 0) != (opponent_left == 0)
+        return terminated, not terminated
 
     def embed_battle(self, battle: AbstractBattle) -> dict[str, np.ndarray]:
         return self.observation_encoder.encode(battle)

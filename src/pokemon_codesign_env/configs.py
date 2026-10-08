@@ -188,8 +188,8 @@ class TeamSearchConfig:
         format_ev_budget = self.format.ev_limit
         if format_ev_budget is None:
             format_ev_budget = 6 * self.format.ev_per_stat_cap
-        if self.team_size is None:
-            object.__setattr__(self, "team_size", self.format.max_team_size)
+        if self.team_size is None:   # a standard singles team, unless the format allows fewer
+            object.__setattr__(self, "team_size", min(6, self.format.max_team_size))
         if self.ev_per_stat_cap is None:
             object.__setattr__(self, "ev_per_stat_cap", self.format.ev_per_stat_cap)
         if self.ev_budget is None:
